@@ -12,9 +12,32 @@ const registrationSchema = new mongoose.Schema({
   address: { type: String, required: true },
   pincode: { type: String, required: true },
   phoneNumber: { type: String, required: true },
-  emergencyPhoneNumber: { type: String, required: true },
-  mailId: { type: String, required: true },
-  department: { type: String, required: true },
+  emergencyPhoneNumber: { type: String, required: true },  mailId: { type: String, required: true },
+  department: {
+    type: String,
+    required: true,
+    enum: [
+      // B.E Programs
+      'B.E. Civil Engineering',
+      'B.E. Computer Science and Engineering',
+      'B.E. Electrical and Electronics Engineering',
+      'B.E. Electronics and Communication Engineering',
+      'B.E. Instrumentation and Control Engineering',
+      'B.E. Mechanical Engineering',
+      'B.E. Robotics and Artificial Intelligence',
+      // B.Tech Programs
+      'B.Tech. Artificial Intelligence and Data Science',
+      'B.Tech. Electronics Engineering (VLSI Design and Technology)',
+      // M.E Programs
+      'M.E. Structural Engineering',
+      'M.E. Engineering Design',
+      'M.E. Computer Science and Engineering',
+      // B.Des
+      'B.Des. Bachelor of Design',
+      // Other
+      'Other'
+    ]
+  },
   institution: { type: String, required: true, enum: ['PSG iTech', 'PSG IAP'] },
   boardingPoint: { type: String, required: true },
   boardingPointRoute: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },

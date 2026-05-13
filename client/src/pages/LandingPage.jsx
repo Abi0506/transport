@@ -5,15 +5,37 @@ export default function LandingPage() {
     <div className="fade-in">
       <section className="hero">
         <h1>PSG iTech <span>Transport</span><br />Registration Portal</h1>
-        <p>Register for college bus transport facility for Academic Year 2026–27. Choose your route, submit your details, and secure your seat.</p>
+        <p>Register for college bus transport facility for AY 2026–27. Choose your route, submit your details, and secure your seat.</p>
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
           <Link to="/register/student" className="btn btn-primary btn-lg">Student Registration</Link>
           <Link to="/register/employee" className="btn btn-secondary btn-lg">Faculty / Staff</Link>
+        </div>      </section>      {/* Advance Payment Notice */}
+      <div style={{
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        border: '3px solid #764ba2',
+        borderRadius: 'var(--radius-lg)',
+        padding: '1.25rem 1.5rem',
+        marginBottom: '3rem',
+        marginTop: '-1rem',
+        color: 'white',
+        boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
+        animation: 'slideDown 0.5s ease-out',        maxWidth: '750px',
+        margin: '-1rem auto 3rem auto'
+      }}>        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <div style={{ fontSize: '3.5rem', flexShrink: 0 }}>💰</div>
+          <div>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.6rem', fontWeight: '700' }}>
+              Advance Payment: ₹5,000
+            </h3>
+            <p style={{ margin: '0.3rem 0', fontSize: '1rem', opacity: '0.95' }}>
+              ✓ Fully refundable if seat not allocated • 📱 Upload receipt or visit office
+            </p>
+          </div>
         </div>
-      </section>
+      </div>
 
       {/* Registration Cards */}
-      <div className="card-grid cols-2" style={{ marginTop: '-1rem', marginBottom: '3rem' }}>
+      <div className="card-grid cols-2" style={{ marginTop: '0', marginBottom: '3rem' }}>
         <Link to="/register/student" style={{ textDecoration: 'none' }}>
           <div className="card">
             <div className="card-icon blue">🎓</div>

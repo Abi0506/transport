@@ -5,16 +5,35 @@ import GuidelinesStep from '../components/GuidelinesStep'
 import InstructionsStep from '../components/InstructionsStep'
 
 const DEPARTMENTS = [
-  'Computer Science', 'Electronics & Communication', 'Electrical & Electronics',
-  'Mechanical', 'Civil', 'Information Technology', 'Biomedical',
-  'Applied Sciences', 'Humanities', 'Physics', 'Chemistry', 'Mathematics',
-  'MBA', 'MCA', 'Other'
+  // B.E Programs
+  'B.E. Civil Engineering',
+  'B.E. Computer Science and Engineering',
+  'B.E. Electrical and Electronics Engineering',
+  'B.E. Electronics and Communication Engineering',
+  'B.E. Instrumentation and Control Engineering',
+  'B.E. Mechanical Engineering',
+  'B.E. Robotics and Artificial Intelligence',
+  // B.Tech Programs
+  'B.Tech. Artificial Intelligence and Data Science',
+  'B.Tech. Electronics Engineering (VLSI Design and Technology)',
+  // M.E Programs
+  'M.E. Structural Engineering',
+  'M.E. Engineering Design',
+  'M.E. Computer Science and Engineering',
+  // B.Des
+  'B.Des. Bachelor of Design'
 ]
 
 export default function Registration() {
   const { userType } = useParams()
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
+  
+  // Initialize step with session persistence
+  const [step, setStep] = useState(() => {
+    const savedStep = sessionStorage.getItem(`registration-step-${userType}`)
+    return savedStep ? parseInt(savedStep) : 1
+  })
+  
   const [routes, setRoutes] = useState([])
   const [selectedRoute, setSelectedRoute] = useState('')
   const [selectedStop, setSelectedStop] = useState(null)
@@ -31,21 +50,70 @@ export default function Registration() {
     registerNumber: '', gender: 'Male', academicYear: '2',
     employeeId: '', category: '', designation: '', employeeType: 'faculty'
   })
-
   const isStudent = userType === 'student'
   const isEmployee = userType === 'employee'
   const isFaculty = isEmployee && form.employeeType === 'faculty'
   const isStaff = isEmployee && form.employeeType === 'staff'
   const concession = isFaculty ? 50 : isStaff ? 25 : 0
-
   useEffect(() => {
     axios.get('/api/register/boarding-points')
       .then(res => setRoutes(res.data))
       .catch(() => {})
   }, [])
 
+  // Save step to sessionStorage whenever it changes
+  useEffect(() => {
+    sessionStorage.setItem(`registration-step-${userType}`, step.toString())
+  }, [step, userType])
+
+  // Function to validate and extract academic year from register number
+  const validateRegisterNumber = (regNum) => {
+    // Must be 12 digits, start with 7155
+    if (!/^\d{12}$/.test(regNum) || !regNum.startsWith('7155')) {
+      return { valid: false, academicYear: null, error: 'Register Number must be 12 digits starting with 7155' }
+    }
+    
+    // Extract year code (digits 5-6, after 7155)
+    const yearCode = regNum.substring(4, 6)
+    const yearMap = { '23': '4', '22': '5', '24': '3', '25': '2' }
+    
+    if (!yearMap[yearCode]) {
+      return { valid: false, academicYear: null, error: `Invalid year code '${yearCode}'. Only 22, 23, 24, 25 are allowed` }
+    }
+    
+    return { valid: true, academicYear: yearMap[yearCode], error: null }
+  }
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
+    if (e.target.name === 'registerNumber' && isStudent) {
+      const regNum = e.target.value
+      
+      // Allow only digits
+      if (!/^\d*$/.test(regNum)) {
+        return
+      }
+      
+      // Auto-validate and populate academic year
+      if (regNum.length === 12) {
+        const validation = validateRegisterNumber(regNum)
+        if (validation.valid) {
+          setForm({ 
+            ...form, 
+            registerNumber: regNum, 
+            academicYear: validation.academicYear 
+          })
+          setToast({ type: 'success', msg: `Year ${validation.academicYear} auto-selected` })
+        } else {
+          setToast({ type: 'error', msg: validation.error })
+        }
+      } else {
+        setForm({ ...form, registerNumber: regNum })
+      }    } else if (e.target.name === 'mailId' && isStudent) {
+      const email = e.target.value
+      setForm({ ...form, mailId: email })
+      // Email validation is done inline below the input field, no toast needed
+    } else {
+      setForm({ ...form, [e.target.name]: e.target.value })
+    }
   }
 
   const selectStop = (stop, routeId) => {
@@ -106,23 +174,66 @@ export default function Registration() {
     if (step === 3) {
       const base = form.name && form.dateOfBirth && form.address && form.pincode &&
         form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
-      if (isStudent) return base && form.registerNumber && form.gender && form.academicYear
+      if (isStudent) {
+        // Validate register number format
+        if (form.registerNumber.length !== 12 || !form.registerNumber.startsWith('7155')) {
+          return false
+        }
+        // Validate email domain for students
+        if (!form.mailId.endsWith('@psgitech.ac.in')) {
+          return false
+        }
+        const validation = validateRegisterNumber(form.registerNumber)
+        return base && validation.valid && form.gender && form.academicYear
+      }
       return base && form.employeeId
     }
     if (step === 4) return selectedStop !== null
     return true
-  }
+  }  // Debug: log the step value
+  useEffect(() => {
+    console.log('Registration page loaded. Step:', step, 'UserType:', userType, 'isStudent:', isStudent)
+  }, [step, userType, isStudent])
 
   return (
     <div className="page fade-in">
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
-
+      
       <div className="page-header" style={{ textAlign: 'center' }}>
         <h1>{isStudent ? '🎓 Student' : '👨‍🏫 Faculty / Staff'} Registration</h1>
         <p>
-          {isStudent ? 'Distance-based allocation • Advance ₹5,000' :
-            'Seniority-based priority'}
+          {isStudent ? ' ' :
+            ' '}
         </p>
+      </div>
+
+      {/* Advance Payment Notice - Only for Students */}
+      {isStudent && (
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          border: '3px solid #764ba2',
+          borderRadius: 'var(--radius-lg)',
+          padding: '1.25rem 1.5rem',
+          marginBottom: '2rem',
+          color: 'white',
+          boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',          animation: 'slideDown 0.5s ease-out',
+          maxWidth: '750px',
+          margin: '0 auto 2rem auto'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+            <div style={{ fontSize: '3.5rem', flexShrink: 0 }}>💰</div>
+            <div>
+              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.6rem', fontWeight: '700' }}>
+                Advance Payment: ₹5,000
+              </h3>
+              <p style={{ margin: '0.3rem 0', fontSize: '1rem', opacity: '0.95' }}>
+                ✓ Fully refundable if seat not allocated • 📱 Upload receipt or visit office
+              </p>
+            </div>
+          </div>
+        </div>      )}      {/* DEBUG: Show step value */}
+      <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+        Current Step: {step} | User Type: {userType} | Is Student: {isStudent ? 'Yes' : 'No'}
       </div>
 
       {step <= 5 && (
@@ -134,11 +245,17 @@ export default function Registration() {
             </div>
           ))}
         </div>
+      )}      {step === 1 && (
+        <div>
+          <GuidelinesStep accepted={guidelinesAccepted} setAccepted={setGuidelinesAccepted} />
+        </div>
       )}
 
-      {/* Step 1: Guidelines */}
-      {step === 1 && (
-        <GuidelinesStep accepted={guidelinesAccepted} setAccepted={setGuidelinesAccepted} />
+      {/* Fallback if step is out of range */}
+      {(step < 1 || step > 6) && (
+        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--accent-rose)' }}>
+          Error: Invalid step value {step}. Please refresh the page.
+        </div>
       )}
 
       {/* Step 2: Instructions */}
@@ -156,16 +273,26 @@ export default function Registration() {
                 <label>Employee Type *</label>
                 <select className="form-control" name="employeeType" value={form.employeeType} onChange={handleChange}>
                   <option value="faculty">Faculty</option>
-                  <option value="staff">Staff</option>
-                </select>
+                  <option value="staff">Staff</option>                </select>
               </div>
             )}
+
             <div className="form-row">
               <div className="form-group">
                 <label>{isStudent ? 'Register Number *' : 'Employee ID *'}</label>
-                <input className="form-control" name={isStudent ? 'registerNumber' : 'employeeId'}
-                  value={isStudent ? form.registerNumber : form.employeeId} onChange={handleChange}
-                  placeholder={isStudent ? 'e.g. 22IT001' : 'e.g. EMP1234'} />
+                <input 
+                  className="form-control" 
+                  name={isStudent ? 'registerNumber' : 'employeeId'}
+                  value={isStudent ? form.registerNumber : form.employeeId} 
+                  onChange={handleChange}
+                  placeholder={isStudent ? 'e.g. 715523IT001' : 'e.g. EMP1234'}
+                  maxLength={isStudent ? 12 : undefined}
+                />
+                {isStudent && form.registerNumber.length > 0 && form.registerNumber.length < 12 && (
+                  <small style={{ color: 'var(--accent-amber)', marginTop: '0.25rem', display: 'block' }}>
+                    12 digits required, starting with 7155
+                  </small>
+                )}
               </div>
               <div className="form-group">
                 <label>Full Name *</label>
@@ -184,16 +311,23 @@ export default function Registration() {
                   <select className="form-control" name="gender" value={form.gender} onChange={handleChange}>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
+                              </select>
+              </div>
               )}
+
               {isStudent && (
                 <div className="form-group">
                   <label>Academic Year *</label>
-                  <select className="form-control" name="academicYear" value={form.academicYear} onChange={handleChange}>
-                    {[1, 2, 3, 4, 5].map(y => <option key={y} value={y}>{y === 1 ? '1st Year (Phase II)' : `${y}${y === 2 ? 'nd' : y === 3 ? 'rd' : 'th'} Year`}</option>)}
-                  </select>
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    fontWeight: '500',
+                    color: form.academicYear ? 'var(--text-primary)' : 'var(--text-muted)'
+                  }}>
+                    {form.academicYear ? `${form.academicYear}${form.academicYear === '1' ? 'st' : form.academicYear === '2' ? 'nd' : form.academicYear === '3' ? 'rd' : 'th'} Year (for upcoming AY 2026-27)` : 'Auto-populated from Register Number'}
+                  </div>
                 </div>
               )}
             </div>
@@ -220,12 +354,29 @@ export default function Registration() {
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label>Pincode *</label>
-                <input className="form-control" name="pincode" value={form.pincode} onChange={handleChange} maxLength={6} />
+                <label>Pincode *</label>                <input className="form-control" name="pincode" value={form.pincode} onChange={handleChange} maxLength={6} />
               </div>
+
               <div className="form-group">
                 <label>Email *</label>
-                <input className="form-control" type="email" name="mailId" value={form.mailId} onChange={handleChange} />
+                <input 
+                  className="form-control" 
+                  type="email" 
+                  name="mailId" 
+                  value={form.mailId} 
+                  onChange={handleChange}
+                  style={isStudent && form.mailId && !form.mailId.endsWith('@psgitech.ac.in') ? { borderColor: 'var(--accent-rose)' } : {}}
+                />
+                {isStudent && form.mailId && !form.mailId.endsWith('@psgitech.ac.in') && (
+                  <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
+                    ❌ Email must be from psgitech.ac.in domain
+                  </small>
+                )}
+                {isStudent && form.mailId && form.mailId.endsWith('@psgitech.ac.in') && (
+                  <small style={{ color: 'var(--accent-emerald)', marginTop: '0.25rem', display: 'block' }}>
+                    ✓ Email domain verified
+                  </small>
+                )}
               </div>
             </div>
             <div className="form-row">
