@@ -13,12 +13,11 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="navbar">
+    <nav className="navbar" style={{ borderBottom: '1px solid var(--border-color)', height: '64px' }}>
       <Link to="/" className="navbar-brand">
-        <img src="/logo.png" alt="PSG iTech Logo" style={{ height: '40px', objectFit: 'contain' }} />
-        <div>
-          <div className="logo">PSG iTech Transport App</div>
-          <div className="sub">PSG iTech &amp; IAP</div>
+        <img src="/3TL_Logo.jpg" alt="3TL Logo" style={{ height: '32px', objectFit: 'contain' }} />
+        <div style={{ paddingLeft: '10px' }}>
+          <div className="logo" style={{ color: 'var(--text-primary)', fontSize: '1.25rem', fontWeight: '700' }}>Transport Portal</div>
         </div>
       </Link>
       <div className="navbar-links">
