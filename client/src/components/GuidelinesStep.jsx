@@ -37,6 +37,8 @@ export default function GuidelinesStep({ accepted, setAccepted }) {
 
         <h3 style={{ marginTop: '1.5rem', marginBottom: '0.75rem', fontSize: '1.1rem' }}>3. Payment</h3>
         <ul>
+          <li><strong>Students:</strong> After completing registration on the website, pay <strong>₹5,000</strong> in cash as an advance at the office. This advance amount is <strong>refundable</strong>.</li>
+          <li><strong>Faculty (Teaching) & Staff (Non-Teaching):</strong> No advance payment required.</li>
           <li>Annual bus fees to be paid in the accounts section at E1 block ground floor 102 on or before <strong>10 Jul 2026</strong> (Friday).</li>
           <li>If annual bus fee is not paid within the time period, the allotted seat will be deallocated.</li>
           <li>Phase II: Exclusively for FIRST year students. Allocation by 1st week of August 2026.</li>
@@ -44,8 +46,6 @@ export default function GuidelinesStep({ accepted, setAccepted }) {
 
         <h3 style={{ marginTop: '1.5rem', marginBottom: '0.75rem', fontSize: '1.1rem' }}>Contact</h3>
         <ul>
-          <li>Dr. S. Maruthamuthu, Professor and HoD (i/c), Department of Physics — E7, Room G-302</li>
-          <li>Dr. R. Ravikumar, Assistant Professor, Department of Humanities — E6, 408</li>
           <li>Email: transport@psgitech.ac.in</li>
         </ul>
       </div>

@@ -38,10 +38,8 @@ export default function InstructionsStep({ accepted, setAccepted }) {
         </table>
 
         <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(245,158,11,0.1)', borderRadius: '8px', borderLeft: '3px solid var(--accent-amber)' }}>
-          <p style={{ fontWeight: 600, color: 'var(--accent-amber)' }}>Important Contacts:</p>
-          <p>Transport In-charge: Dr S Maruthamuthu</p>
-          <p>Principal: Dr N Saravanakumar</p>
-          <p>Bus Pass: Mr P Venkitupathy — +91 9047176887</p>
+          <p style={{ fontWeight: 600, color: 'var(--accent-amber)' }}>Contact Email:</p>
+          <p>transport@psgitech.ac.in</p>
         </div>
       </div>
 

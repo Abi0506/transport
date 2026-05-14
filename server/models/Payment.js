@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const paymentSchema = new mongoose.Schema({
   registration: { type: mongoose.Schema.Types.ObjectId, ref: 'Registration', required: true },
   rollNumber: { type: String, required: true },
+  receiptNumber: { type: String, required: true, unique: true, sparse: true, trim: true },
   amount: { type: Number, default: 5000 },
   receiptFile: { type: String },
   paidStatus: {

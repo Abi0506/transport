@@ -1,9 +1,68 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
 const router = express.Router();
 const Registration = require('../models/Registration');
 const Route = require('../models/Route');
+const { sendMail } = require('../utils/mailer');
 
-// Get all boarding points grouped by route
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(__dirname, '..', 'uploads'));
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'), false);
+    }
+  },
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+const uploadMultiple = upload.fields([
+  { name: 'advanceReceipt', maxCount: 1 },
+  { name: 'fullPaymentReceipt', maxCount: 1 }
+]);
+
+const sendRegistrationConfirmation = async ({ mailId, name, stopName }) => {
+  if (!mailId) return;
+
+  const subject = 'Transport Registration Confirmation - AY 2026-27';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+      <div style="background: #2f5ea8; color: #fff; padding: 16px; text-align: center; font-size: 24px; font-weight: 700;">
+        Transport Section PSG iTech
+      </div>
+      <div style="padding: 24px; color: #222; line-height: 1.7;">
+        <p>Dear ${name},</p>
+        <p>Thank you for registering in the Transport App of PSGiTech for availing college bus during AY 2026-27.</p>
+        <p><strong>Your login credentials are:</strong></p>
+        <p style="margin-left: 16px;">
+          User name: Register Number / D.No.<br />
+          Password: Date of Birth (yyyymmdd)
+        </p>
+        <p><strong>Advance Payment:</strong> ₹5,000 must be paid in advance (cash at office). This amount is refundable as per transport rules.</p>
+        <p>For First Year and Lateral Students, login access will be provided after the seat allocation.</p>
+        <p>Allocation will be done based on your boarding point and the distance matrix.</p>
+        <p>If you are allotted a seat, you will receive an allocation mail regarding bus fees, payment date, bus route number, and other procedures.</p>
+        <p><strong>Important:</strong> Please refer to the Transport Guidelines for detailed information.</p>
+        <p>Thank you</p>
+        <p>With Regards<br />Team Transport</p>
+      </div>
+    </div>
+  `;
+
+  await sendMail(mailId, subject, html);
+};
+
 router.get('/boarding-points', async (req, res) => {
   try {
     const routes = await Route.find({ isActive: true }).sort({ routeNumber: 1 });
@@ -25,28 +84,30 @@ router.get('/boarding-points', async (req, res) => {
   }
 });
 
-// Register student
-router.post('/student', async (req, res) => {
+router.post('/student', uploadMultiple, async (req, res) => {
   try {
+    const registrationData = typeof req.body.registration === 'string'
+      ? JSON.parse(req.body.registration)
+      : req.body.registration;
+
     const {
       registerNumber, name, gender, dateOfBirth, academicYear,
       department, institution, address, pincode, boardingPoint,
       phoneNumber, emergencyPhoneNumber, mailId,
-      guidelinesAccepted, instructionsAccepted
-    } = req.body;
+      guidelinesAccepted, instructionsAccepted,
+      advanceReceiptNumber, advancePaymentDate,
+      fullPaymentReceiptNumber, fullPaymentDate
+    } = registrationData || req.body;
 
-    // Validate guidelines accepted
     if (!guidelinesAccepted || !instructionsAccepted) {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
     }
 
-    // Check duplicate
     const existing = await Registration.findOne({ registerNumber, userType: 'student' });
     if (existing) {
       return res.status(400).json({ message: 'Student with this register number already registered' });
     }
 
-    // Find route and stop info
     const route = await Route.findOne({ 'stops.name': boardingPoint });
     if (!route) {
       return res.status(400).json({ message: 'Invalid boarding point' });
@@ -55,17 +116,38 @@ router.post('/student', async (req, res) => {
 
     const registration = new Registration({
       userType: 'student',
-      registerNumber, name, gender, dateOfBirth: new Date(dateOfBirth),
-      academicYear: parseInt(academicYear), department, institution,
-      address, pincode, boardingPoint,
+      registerNumber,
+      name,
+      gender,
+      dateOfBirth: new Date(dateOfBirth),
+      academicYear: parseInt(academicYear),
+      department,
+      institution,
+      address,
+      pincode,
+      boardingPoint,
       boardingPointRoute: route._id,
       boardingPointFees: stop.fees,
       distanceOrder: stop.distanceOrder,
-      phoneNumber, emergencyPhoneNumber, mailId,
-      guidelinesAccepted, instructionsAccepted
+      phoneNumber,
+      emergencyPhoneNumber,
+      mailId,
+      guidelinesAccepted,
+      instructionsAccepted,
+      receiptFile: req.files?.advanceReceipt?.[0]?.filename || null,
+      advanceReceiptNumber: advanceReceiptNumber || null,
+      advancePaid: !!req.files?.advanceReceipt?.[0],
+      advancePaymentDate: advancePaymentDate ? new Date(advancePaymentDate) : null,
+      advanceConfirmationMethod: req.files?.advanceReceipt?.[0] ? 'upload' : null,
+      finalReceiptFile: req.files?.fullPaymentReceipt?.[0]?.filename || null,
+      fullPaymentReceiptNumber: fullPaymentReceiptNumber || null,
+      fullFeePaid: !!req.files?.fullPaymentReceipt?.[0],
+      fullPaymentDate: fullPaymentDate ? new Date(fullPaymentDate) : null,
+      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null
     });
 
     await registration.save();
+    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint });
     res.status(201).json({
       message: 'Registration successful!',
       registrationId: registration._id,
@@ -77,15 +159,19 @@ router.post('/student', async (req, res) => {
   }
 });
 
-// Register faculty
-router.post('/faculty', async (req, res) => {
+router.post('/faculty', uploadMultiple, async (req, res) => {
   try {
+    const registrationData = typeof req.body.registration === 'string'
+      ? JSON.parse(req.body.registration)
+      : req.body.registration;
+
     const {
       employeeId, name, dateOfBirth, category, designation,
       department, institution, address, pincode, boardingPoint,
       phoneNumber, emergencyPhoneNumber, mailId,
-      guidelinesAccepted, instructionsAccepted
-    } = req.body;
+      guidelinesAccepted, instructionsAccepted,
+      fullPaymentReceiptNumber, fullPaymentDate
+    } = registrationData || req.body;
 
     if (!guidelinesAccepted || !instructionsAccepted) {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
@@ -104,20 +190,37 @@ router.post('/faculty', async (req, res) => {
 
     const registration = new Registration({
       userType: 'faculty',
-      employeeId, name, dateOfBirth: new Date(dateOfBirth),
-      category, designation, department, institution,
-      address, pincode, boardingPoint,
+      employeeId,
+      name,
+      dateOfBirth: new Date(dateOfBirth),
+      category,
+      designation,
+      department,
+      institution,
+      address,
+      pincode,
+      boardingPoint,
       boardingPointRoute: route._id,
       boardingPointFees: stop.fees,
       distanceOrder: stop.distanceOrder,
-      phoneNumber, emergencyPhoneNumber, mailId,
-      guidelinesAccepted, instructionsAccepted
+      phoneNumber,
+      emergencyPhoneNumber,
+      mailId,
+      guidelinesAccepted,
+      instructionsAccepted,
+      finalReceiptFile: req.files?.fullPaymentReceipt?.[0]?.filename || null,
+      fullPaymentReceiptNumber: fullPaymentReceiptNumber || null,
+      fullFeePaid: !!req.files?.fullPaymentReceipt?.[0],
+      fullPaymentDate: fullPaymentDate ? new Date(fullPaymentDate) : null,
+      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null
     });
 
     await registration.save();
+    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint });
     res.status(201).json({
       message: 'Faculty registration successful!',
       registrationId: registration._id,
+      phase: registration.phase,
       finalFees: registration.finalFees,
       concession: '50%'
     });
@@ -126,15 +229,19 @@ router.post('/faculty', async (req, res) => {
   }
 });
 
-// Register staff
-router.post('/staff', async (req, res) => {
+router.post('/staff', uploadMultiple, async (req, res) => {
   try {
+    const registrationData = typeof req.body.registration === 'string'
+      ? JSON.parse(req.body.registration)
+      : req.body.registration;
+
     const {
       employeeId, name, dateOfBirth, category, designation,
       department, institution, address, pincode, boardingPoint,
       phoneNumber, emergencyPhoneNumber, mailId,
-      guidelinesAccepted, instructionsAccepted
-    } = req.body;
+      guidelinesAccepted, instructionsAccepted,
+      fullPaymentReceiptNumber, fullPaymentDate
+    } = registrationData || req.body;
 
     if (!guidelinesAccepted || !instructionsAccepted) {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
@@ -153,20 +260,37 @@ router.post('/staff', async (req, res) => {
 
     const registration = new Registration({
       userType: 'staff',
-      employeeId, name, dateOfBirth: new Date(dateOfBirth),
-      category, designation, department, institution,
-      address, pincode, boardingPoint,
+      employeeId,
+      name,
+      dateOfBirth: new Date(dateOfBirth),
+      category,
+      designation,
+      department,
+      institution,
+      address,
+      pincode,
+      boardingPoint,
       boardingPointRoute: route._id,
       boardingPointFees: stop.fees,
       distanceOrder: stop.distanceOrder,
-      phoneNumber, emergencyPhoneNumber, mailId,
-      guidelinesAccepted, instructionsAccepted
+      phoneNumber,
+      emergencyPhoneNumber,
+      mailId,
+      guidelinesAccepted,
+      instructionsAccepted,
+      finalReceiptFile: req.files?.fullPaymentReceipt?.[0]?.filename || null,
+      fullPaymentReceiptNumber: fullPaymentReceiptNumber || null,
+      fullFeePaid: !!req.files?.fullPaymentReceipt?.[0],
+      fullPaymentDate: fullPaymentDate ? new Date(fullPaymentDate) : null,
+      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null
     });
 
     await registration.save();
+    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint });
     res.status(201).json({
       message: 'Staff registration successful!',
       registrationId: registration._id,
+      phase: registration.phase,
       finalFees: registration.finalFees,
       concession: '25%'
     });
@@ -175,36 +299,26 @@ router.post('/staff', async (req, res) => {
   }
 });
 
-// Check registration status
-router.get('/status/:id', async (req, res) => {
+router.get('/status/:registerNumber', async (req, res) => {
   try {
-    const registration = await Registration.findById(req.params.id)
-      .populate('boardingPointRoute', 'routeNumber routeName')
-      .populate('allocatedRoute', 'routeNumber routeName');
+    const registration = await Registration.findOne({
+      registerNumber: req.params.registerNumber,
+      userType: 'student'
+    });
+
     if (!registration) {
       return res.status(404).json({ message: 'Registration not found' });
     }
-    res.json(registration);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
 
-// Lookup by register number or employee ID
-router.get('/lookup', async (req, res) => {
-  try {
-    const { registerNumber, employeeId } = req.query;
-    let query = {};
-    if (registerNumber) query.registerNumber = registerNumber;
-    if (employeeId) query.employeeId = employeeId;
-
-    const registration = await Registration.findOne(query)
-      .populate('boardingPointRoute', 'routeNumber routeName')
-      .populate('allocatedRoute', 'routeNumber routeName');
-    if (!registration) {
-      return res.status(404).json({ message: 'Registration not found' });
-    }
-    res.json(registration);
+    res.json({
+      registrationId: registration._id,
+      status: registration.status || 'pending',
+      phase: registration.phase || 'awaiting_seat_allocation',
+      finalFees: registration.finalFees,
+      boardingPoint: registration.boardingPoint,
+      advancePaid: registration.advancePaid,
+      fullFeePaid: registration.fullFeePaid
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

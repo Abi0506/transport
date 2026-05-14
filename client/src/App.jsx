@@ -6,6 +6,8 @@ import UserLogin from './pages/UserLogin'
 import UserDashboard from './pages/UserDashboard'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
+import PaymentUpload from './pages/PaymentUpload'
+import OfficePayment from './pages/OfficePayment'
 
 function App() {
   return (
@@ -18,6 +20,8 @@ function App() {
             <Route path="/register/:userType" element={<Registration />} />
             <Route path="/login" element={<UserLogin />} />
             <Route path="/dashboard" element={<UserDashboard />} />
+            <Route path="/payment" element={<PaymentUpload />} />
+            <Route path="/office" element={<OfficePayment />} />
             <Route path="/admin" element={<AdminLogin />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="*" element={<Navigate to="/" replace />} />

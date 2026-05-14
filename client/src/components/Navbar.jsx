@@ -3,10 +3,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
-  const token = localStorage.getItem('userToken')
+  const currentUser = sessionStorage.getItem('currentUser')
+  const isOffice = location.pathname === '/office'
 
   const handleLogout = () => {
-    localStorage.removeItem('userToken')
+    sessionStorage.removeItem('currentUser')
     navigate('/')
   }
 
@@ -20,10 +21,13 @@ export default function Navbar() {
         </div>
       </Link>
       <div className="navbar-links">
-        {token ? (
-          <button onClick={handleLogout} className="btn btn-secondary btn-sm">Logout</button>
-        ) : localStorage.getItem('adminToken') ? null : (
-          <Link to="/login" className="btn btn-primary btn-sm">Login</Link>
+        {/* Hide login/logout buttons on /office page */}
+        {!isOffice && (
+          currentUser ? (
+            <button onClick={handleLogout} className="btn btn-secondary btn-sm">Logout</button>
+          ) : (
+            <Link to="/login" className="btn btn-primary btn-sm">Login</Link>
+          )
         )}
       </div>
     </nav>

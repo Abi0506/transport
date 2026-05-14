@@ -31,11 +31,8 @@ const registrationSchema = new mongoose.Schema({
       // M.E Programs
       'M.E. Structural Engineering',
       'M.E. Engineering Design',
-      'M.E. Computer Science and Engineering',
-      // B.Des
-      'B.Des. Bachelor of Design',
-      // Other
-      'Other'
+      // B.Arch
+      'B.Arch. Bachelor of Architecture'
     ]
   },
   institution: { type: String, required: true, enum: ['PSG iTech', 'PSG IAP'] },
@@ -47,6 +44,8 @@ const registrationSchema = new mongoose.Schema({
   registerNumber: { type: String },
   gender: { type: String, enum: ['Male', 'Female', 'Other'] },
   academicYear: { type: Number, min: 1, max: 5 },
+  loginUsername: { type: String },
+  loginPasswordHash: { type: String },
 
   // Faculty/Staff-specific fields
   employeeId: { type: String },
@@ -61,7 +60,7 @@ const registrationSchema = new mongoose.Schema({
   // Status fields
   registrationStatus: {
     type: String,
-    enum: ['pending', 'allocated', 'rejected', 'confirmed', 'waitlisted'],
+    enum: ['pending', 'allocated', 'rejected', 'confirmed', 'waitlisted', 'cancelled', 'rejected_refund'],
     default: 'pending'
   },
   allocatedRoute: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
@@ -69,8 +68,10 @@ const registrationSchema = new mongoose.Schema({
 
   // Payment
   advancePaid: { type: Boolean, default: false },
+  advancePaymentDate: { type: Date },
   advanceConfirmationMethod: { type: String, enum: ['upload', 'manual', 'bulk', null], default: null },
   receiptFile: { type: String }, // Advance fee receipt
+  advanceReceiptNumber: { type: String },
   
   fullFeePaid: { type: Boolean, default: false },
   finalReceiptFile: { type: String }, // Final fee receipt
@@ -86,7 +87,9 @@ const registrationSchema = new mongoose.Schema({
   // Cancellation
   cancellationRequested: { type: Boolean, default: false },
   cancellationReason: { type: String },
-  cancellationLetter: { type: String }
+  cancellationLetter: { type: String },
+  deallocationReason: { type: String },
+  deallocatedAt: { type: Date }
 }, { timestamps: true });
 
 // Calculate age before saving
@@ -132,5 +135,6 @@ registrationSchema.index({ boardingPoint: 1 });
 registrationSchema.index({ allocatedRoute: 1 });
 registrationSchema.index({ registerNumber: 1 });
 registrationSchema.index({ employeeId: 1 });
+registrationSchema.index({ loginUsername: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Registration', registrationSchema);

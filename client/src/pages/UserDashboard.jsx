@@ -4,14 +4,14 @@ import axios from 'axios'
 
 export default function UserDashboard() {
   const [user, setUser] = useState(null)
-  const [file, setFile] = useState(null)
-  const [uploading, setUploading] = useState(false)
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
   
   const [cancelReason, setCancelReason] = useState('')
-  const [cancelFile, setCancelFile] = useState(null)
   const [canceling, setCanceling] = useState(false)
+  const [cancelOtp, setCancelOtp] = useState('')
+  const [cancelOtpSent, setCancelOtpSent] = useState(false)
+  const [sendingCancelOtp, setSendingCancelOtp] = useState(false)
   
   const [finalFile, setFinalFile] = useState(null)
   const [uploadingFinal, setUploadingFinal] = useState(false)
@@ -20,35 +20,63 @@ export default function UserDashboard() {
 
   const handleFinalUpload = async () => {
     if (!finalFile) { setToast({ type: 'error', msg: 'Please select a PDF file' }); setTimeout(() => setToast(null), 3000); return; }
+    
+    const rollNumber = user.registerNumber || user.employeeId
+    const fileBaseName = finalFile.name.replace(/\.pdf$/i, '')
+    if (fileBaseName !== rollNumber) {
+      setToast({ type: 'error', msg: 'PDF filename must match your roll number or staff ID' })
+      setTimeout(() => setToast(null), 3500)
+      return
+    }
+
     setUploadingFinal(true)
     const formData = new FormData()
     formData.append('receipt', finalFile)
-    formData.append('rollNumber', user.registerNumber || user.employeeId)
+    formData.append('rollNumber', rollNumber)
     formData.append('registrationId', user.registrationId || user._id)
     try {
       const res = await axios.post('/api/payment/upload-final-receipt', formData)
       setToast({ type: 'success', msg: res.data.message })
       setFinalFile(null)
-      const updated = await axios.get('/api/auth/me', { headers: { Authorization: `Bearer ${localStorage.getItem('userToken')}` } })
-      setUser(updated.data)
+      setUser(prev => prev ? { ...prev, finalReceiptFile: finalFile.name, fullFeePaid: false, finalConfirmationMethod: 'upload' } : prev)
     } catch (err) { setToast({ type: 'error', msg: err.response?.data?.message || 'Upload failed' }) } 
     finally { setUploadingFinal(false); setTimeout(() => setToast(null), 4000) }
   }
 
-  const submitCancellation = async () => {
-    if (!cancelFile || !cancelReason) return;
-    setCanceling(true)
-    const formData = new FormData()
-    formData.append('letter', cancelFile)
-    formData.append('reason', cancelReason)
-    formData.append('registrationId', user.registrationId || user._id)
+  const sendCancellationOtp = async () => {
+    if (!cancelReason.trim()) {
+      setToast({ type: 'error', msg: 'Please enter a cancellation reason first' })
+      setTimeout(() => setToast(null), 3000)
+      return
+    }
+
+    setSendingCancelOtp(true)
     try {
-      const res = await axios.post('/api/payment/cancel-request', formData)
-      setToast({ type: 'success', msg: res.data.message })
-      const updated = await axios.get('/api/auth/me', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('userToken')}` }
+      await axios.post('/api/otp/send', { email: user.mailId, purpose: 'cancellation' })
+      setCancelOtpSent(true)
+      setToast({ type: 'success', msg: `OTP sent to ${user.mailId}` })
+    } catch (err) {
+      setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to send OTP' })
+    } finally {
+      setSendingCancelOtp(false)
+      setTimeout(() => setToast(null), 4000)
+    }
+  }
+
+  const submitCancellation = async () => {
+    if (!cancelReason.trim() || !cancelOtp.trim()) return
+    setCanceling(true)
+    try {
+      await axios.post('/api/otp/verify', { email: user.mailId, otp: cancelOtp.trim() })
+      const res = await axios.post('/api/payment/cancel-request', {
+        reason: cancelReason.trim(),
+        registrationId: user.registrationId || user._id
       })
-      setUser(updated.data)
+      setToast({ type: 'success', msg: res.data.message })
+      setCancelOtp('')
+      setCancelOtpSent(false)
+      setCancelReason('')
+      setUser(prev => prev ? { ...prev, cancellationRequested: true, cancellationReason: cancelReason.trim() } : prev)
     } catch (err) {
       setToast({ type: 'error', msg: err.response?.data?.message || 'Failed' })
     } finally {
@@ -60,14 +88,11 @@ export default function UserDashboard() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const token = localStorage.getItem('userToken')
-        if (!token) return navigate('/login')
-        const res = await axios.get('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        setUser(res.data)
+        const storedUser = sessionStorage.getItem('currentUser')
+        if (!storedUser) return navigate('/login')
+        setUser(JSON.parse(storedUser))
       } catch (err) {
-        localStorage.removeItem('userToken')
+        sessionStorage.removeItem('currentUser')
         navigate('/login')
       } finally {
         setLoading(false)
@@ -76,36 +101,8 @@ export default function UserDashboard() {
     fetchUser()
   }, [navigate])
 
-  const handleUpload = async () => {
-    if (!file) {
-      setToast({ type: 'error', msg: 'Please select a PDF file' })
-      setTimeout(() => setToast(null), 3000)
-      return
-    }
-    setUploading(true)
-    const formData = new FormData()
-    formData.append('receipt', file)
-    formData.append('rollNumber', user.registerNumber || user.employeeId)
-    formData.append('registrationId', user.registrationId)
-    try {
-      const res = await axios.post('/api/payment/upload-receipt', formData)
-      setToast({ type: 'success', msg: res.data.message })
-      setFile(null)
-      // refresh user
-      const updated = await axios.get('/api/auth/me', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('userToken')}` }
-      })
-      setUser(updated.data)
-    } catch (err) {
-      setToast({ type: 'error', msg: err.response?.data?.message || 'Upload failed' })
-    } finally {
-      setUploading(false)
-      setTimeout(() => setToast(null), 4000)
-    }
-  }
-
   const logout = () => {
-    localStorage.removeItem('userToken')
+    sessionStorage.removeItem('currentUser')
     navigate('/')
   }
 
@@ -115,12 +112,6 @@ export default function UserDashboard() {
   const statusColor = {
     pending: 'var(--accent-amber)', allocated: 'var(--accent-emerald)',
     rejected: 'var(--accent-rose)', confirmed: 'var(--accent-blue)', waitlisted: 'var(--accent-purple)'
-  }
-
-  const paymentStatusDisplay = () => {
-    if (user.advancePaid) return <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span>
-    if (user.receiptUrl) return <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span>
-    return <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Not Paid</span>
   }
 
   return (
@@ -169,63 +160,36 @@ export default function UserDashboard() {
         <div className="card">
           <div className="section-title">💳 Payment Status</div>
           <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--bg-glass)', borderRadius: '12px' }}>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Advance Payment Status</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Final Fee Payment Status</div>
             <div style={{ fontSize: '1.1rem' }}>
-              {paymentStatusDisplay()}
+              {user.fullFeePaid ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span> : 
+               user.finalReceiptFile ? <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span> : 
+               <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Not Paid</span>}
             </div>
-            {user.confirmationMethod && (
+            {user.finalConfirmationMethod && (
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                Method: {user.confirmationMethod} {user.confirmedBy ? `• By: ${user.confirmedBy}` : ''}
+                Method: {user.finalConfirmationMethod}
               </div>
             )}
           </div>
 
-          {!user.advancePaid && (
+          {!user.fullFeePaid && user.registrationStatus === 'allocated' && (
             <div style={{ marginTop: '2rem' }}>
-              <div className="section-title">📤 Upload Advance Receipt</div>
-              <div className="upload-zone" onClick={() => document.getElementById('pdfInput').click()}>
+              <div className="section-title">📤 Upload Final Fee Receipt</div>
+              <div className="upload-zone" onClick={() => document.getElementById('finalPdfInput').click()}>
                 <div className="icon">📄</div>
-                <p>{file ? `Selected: ${file.name}` : 'Click to select PDF receipt'}</p>
+                <p>{finalFile ? `Selected: ${finalFile.name}` : 'Click to select final PDF receipt'}</p>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                  PDF only • Max 5MB • Advance ₹5,000
+                  PDF only • Max 5MB • Filename must match your ID
                 </p>
               </div>
-              <input id="pdfInput" type="file" accept=".pdf" style={{ display: 'none' }}
-                onChange={e => setFile(e.target.files[0])} />
+              <input id="finalPdfInput" type="file" accept=".pdf" style={{ display: 'none' }}
+                onChange={e => setFinalFile(e.target.files[0])} />
+              
               <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}
-                disabled={uploading || !file} onClick={handleUpload}>
-                {uploading ? 'Uploading...' : '⬆ Upload Receipt'}
+                disabled={uploadingFinal || !finalFile} onClick={handleFinalUpload}>
+                {uploadingFinal ? 'Uploading...' : '⬆ Upload Final Receipt'}
               </button>
-            </div>
-          )}
-
-          {user.advancePaid && (
-            <div style={{ marginTop: '2rem', borderTop: '1px solid var(--border-glass)', paddingTop: '1.5rem' }}>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Final Fee Payment Status</div>
-              <div style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>
-                {user.fullFeePaid ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span> : 
-                 user.finalReceiptFile ? <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span> : 
-                 <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Not Paid</span>}
-              </div>
-
-              {!user.fullFeePaid && user.registrationStatus === 'allocated' && (
-                <>
-                  <div className="section-title">📤 Upload Final Fee Receipt</div>
-                  <div className="upload-zone" onClick={() => document.getElementById('finalPdfInput').click()}>
-                    <div className="icon">📄</div>
-                    <p>{finalFile ? `Selected: ${finalFile.name}` : 'Click to select final PDF receipt'}</p>
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                      PDF only • Max 5MB
-                    </p>
-                  </div>
-                  <input id="finalPdfInput" type="file" accept=".pdf" style={{ display: 'none' }}
-                    onChange={e => setFinalFile(e.target.files[0])} />
-                  <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}
-                    disabled={uploadingFinal || !finalFile} onClick={handleFinalUpload}>
-                    {uploadingFinal ? 'Uploading...' : '⬆ Upload Final Receipt'}
-                  </button>
-                </>
-              )}
             </div>
           )}
         </div>
@@ -241,21 +205,53 @@ export default function UserDashboard() {
             {user.cancellationReason && <p style={{ fontSize: '0.85rem', marginTop: '0.5rem', fontStyle: 'italic' }}>Reason: {user.cancellationReason}</p>}
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Reason for Cancellation</label>
-              <textarea className="form-control" rows={4} value={cancelReason} onChange={e => setCancelReason(e.target.value)} placeholder="State your reason briefly..." />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Supporting Document / Letter (PDF)</label>
-              <div className="upload-zone" style={{ minHeight: '100px', padding: '1rem' }} onClick={() => document.getElementById('cancelPdfInput').click()}>
-                <p>{cancelFile ? `Selected: ${cancelFile.name}` : 'Click to select PDF letter'}</p>
-              </div>
-              <input id="cancelPdfInput" type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => setCancelFile(e.target.files[0])} />
-              <button className="btn btn-danger" style={{ width: '100%', marginTop: '1rem' }} disabled={canceling || !cancelReason || !cancelFile} onClick={submitCancellation}>
-                {canceling ? 'Submitting...' : 'Submit Request'}
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Reason for Cancellation</label>
+            <textarea
+              className="form-control"
+              rows={4}
+              value={cancelReason}
+              onChange={e => {
+                setCancelReason(e.target.value)
+                if (cancelOtpSent) {
+                  setCancelOtpSent(false)
+                  setCancelOtp('')
+                }
+              }}
+              placeholder="State your reason briefly..."
+            />
+
+            {!cancelOtpSent ? (
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: '1rem' }}
+                disabled={sendingCancelOtp || !cancelReason.trim()}
+                onClick={sendCancellationOtp}
+              >
+                {sendingCancelOtp ? 'Sending OTP...' : 'Send OTP for Cancellation'}
               </button>
-            </div>
+            ) : (
+              <>
+                <div className="form-group" style={{ marginTop: '1rem' }}>
+                  <label>Enter OTP *</label>
+                  <input
+                    className="form-control"
+                    placeholder="Enter 6-digit OTP"
+                    value={cancelOtp}
+                    onChange={e => setCancelOtp(e.target.value)}
+                  />
+                  <small style={{ color: 'var(--text-muted)' }}>OTP sent to {user.mailId}</small>
+                </div>
+                <button
+                  className="btn btn-danger"
+                  style={{ width: '100%', marginTop: '0.5rem' }}
+                  disabled={canceling || !cancelReason.trim() || !cancelOtp.trim()}
+                  onClick={submitCancellation}
+                >
+                  {canceling ? 'Verifying & Submitting...' : 'Verify OTP & Submit Cancellation'}
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

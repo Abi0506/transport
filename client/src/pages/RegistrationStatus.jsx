@@ -35,7 +35,7 @@ export default function RegistrationStatus() {
             <label>Register Number / Employee ID</label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <input className="form-control" value={query} onChange={e => setQuery(e.target.value)}
-                placeholder="e.g. 22IT001" onKeyDown={e => e.key === 'Enter' && lookup()} />
+                placeholder="e.g. 7155XXXXXXXX" onKeyDown={e => e.key === 'Enter' && lookup()} />
               <button className="btn btn-primary" onClick={lookup}>Search</button>
             </div>
           </div>

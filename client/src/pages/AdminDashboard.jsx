@@ -19,9 +19,21 @@ export default function AdminDashboard() {
   const [bulkRolls, setBulkRolls] = useState('')
   const [paymentTab, setPaymentTab] = useState('manual')
   const [manualRoll, setManualRoll] = useState('')
+  const [credRoll, setCredRoll] = useState('')
+  const [credUsername, setCredUsername] = useState('')
+  const [credPassword, setCredPassword] = useState('')
   const [allocMode, setAllocMode] = useState('all')
   const [allocRoute, setAllocRoute] = useState('')
   const [loading, setLoading] = useState(true)
+  const [filterView, setFilterView] = useState('registered')
+  const [filterAdvancePaid, setFilterAdvancePaid] = useState('')
+  const [filterFinalPaid, setFilterFinalPaid] = useState('')
+  const [filterRoute, setFilterRoute] = useState('')
+  const [filteredRegs, setFilteredRegs] = useState([])
+  const [routeViewRoute, setRouteViewRoute] = useState('')
+  const [routeViewType, setRouteViewType] = useState('allocated')
+  const [routeViewData, setRouteViewData] = useState([])
+  const [selectedCommuterId, setSelectedCommuterId] = useState(null)
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4000) }
 
@@ -52,6 +64,7 @@ export default function AdminDashboard() {
     try {
       const res = await api.get(`/api/admin/route/${routeId}/stop/${encodeURIComponent(stopName)}/registrations`)
       setModal({ stopName, routeId, registrations: res.data })
+      setSelectedCommuterId(null)
     } catch { showToast('error', 'Failed to load registrations') }
   }
 
@@ -134,20 +147,24 @@ export default function AdminDashboard() {
     } catch (err) { showToast('error', err.response?.data?.message || 'Failed') }
   }
 
-  const [excelFile, setExcelFile] = useState(null)
-  const handleExcelUpload = async (type) => {
-    if (!excelFile) { showToast('error', 'Please select an Excel file first'); return; }
-    const formData = new FormData()
-    formData.append('file', excelFile)
+  const saveCredentials = async () => {
+    if (!credRoll || !credUsername || !credPassword) {
+      showToast('error', 'Enter roll/staff ID, username, and password')
+      return
+    }
     try {
-      const res = await api.post(`/api/payment/upload-excel/${type}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+      const res = await api.post('/api/admin/credentials', {
+        rollNumber: credRoll,
+        loginUsername: credUsername,
+        password: credPassword
       })
       showToast('success', res.data.message)
-      setExcelFile(null)
-      document.getElementById('adminExcelInput').value = ''
-      fetchData()
-    } catch(err) { showToast('error', err.response?.data?.message || 'Excel upload failed') }
+      setCredRoll('')
+      setCredUsername('')
+      setCredPassword('')
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to save credentials')
+    }
   }
 
   const toggleBlock = async (regId, currentStatus) => {
@@ -158,6 +175,68 @@ export default function AdminDashboard() {
       if (modal) viewStopPeople(modal.routeId, modal.stopName)
       fetchData()
     } catch { showToast('error', 'Block action failed') }
+  }
+
+  const loadFilteredRegistrations = async () => {
+    try {
+      const params = new URLSearchParams({ view: filterView, limit: '500' })
+      if (filterAdvancePaid) params.append('advancePaid', filterAdvancePaid)
+      if (filterFinalPaid) params.append('fullFeePaid', filterFinalPaid)
+      if (filterRoute) params.append('route', filterRoute)
+
+      const res = await api.get(`/api/admin/registrations?${params.toString()}`)
+      setFilteredRegs(res.data.registrations || [])
+    } catch (err) {
+      showToast('error', 'Failed to load filtered registrations')
+    }
+  }
+
+  const loadRouteView = async () => {
+    if (!routeViewRoute) {
+      showToast('error', 'Select a route first')
+      return
+    }
+    try {
+      const res = await api.get(`/api/admin/route/${routeViewRoute}/view?view=${routeViewType}`)
+      setRouteViewData(res.data || [])
+    } catch (err) {
+      showToast('error', 'Failed to load route-wise view')
+    }
+  }
+
+  const moveToWaitlist = async (regId) => {
+    try {
+      const res = await api.post(`/api/admin/waitlist/${regId}`)
+      showToast('success', res.data.message)
+      loadFilteredRegistrations()
+      loadRouteView()
+      fetchData()
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to move user to waitlist')
+    }
+  }
+
+  const deallocateUser = async (regId) => {
+    const reason = window.prompt('Enter deallocation reason')
+    if (reason === null) return
+    try {
+      const res = await api.post(`/api/admin/deallocate/${regId}`, { reason })
+      showToast('success', res.data.message)
+      loadFilteredRegistrations()
+      loadRouteView()
+      fetchData()
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to deallocate user')
+    }
+  }
+
+  const resendMail = async (regId, type) => {
+    try {
+      const res = await api.post(`/api/admin/resend-mail/${regId}`, { type })
+      showToast('success', res.data.message)
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to send mail')
+    }
   }
 
   const [editRoute, setEditRoute] = useState(null)
@@ -311,35 +390,188 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Payment Confirmation */}
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginBottom: '1rem' }}>💰 Payment Confirmation</h3>
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-          <button className={`btn ${paymentTab === 'manual' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPaymentTab('manual')}>Manual Entry</button>
-          <button className={`btn ${paymentTab === 'bulk' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPaymentTab('bulk')}>Bulk Text</button>
-          <button className={`btn ${paymentTab === 'excel' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPaymentTab('excel')}>Excel Upload</button>
-        </div>
-        {paymentTab === 'manual' ? (
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <input className="form-control" placeholder="Enter Roll Number" value={manualRoll} onChange={e => setManualRoll(e.target.value)} />
-            <button className="btn btn-success" onClick={confirmPayment}>Confirm</button>
-          </div>
-        ) : paymentTab === 'bulk' ? (
-          <div>
-            <textarea className="form-control" rows={4} placeholder="Enter roll numbers (one per line, or comma-separated)"
-              value={bulkRolls} onChange={e => setBulkRolls(e.target.value)} />
-            <button className="btn btn-success" style={{ marginTop: '0.5rem' }} onClick={bulkConfirm}>Confirm All</button>
-          </div>
-        ) : (
-          <div>
-            <input id="adminExcelInput" type="file" accept=".xlsx,.xls,.csv" className="form-control" onChange={e => setExcelFile(e.target.files[0])} />
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <button className="btn btn-primary" onClick={() => handleExcelUpload('advance')}>Verify Advance (Excel)</button>
-              <button className="btn btn-success" onClick={() => handleExcelUpload('final')}>Verify Final Fee (Excel)</button>
+      {false && (
+        <>
+          {/* TEMPORARILY BLOCKED - Payment Confirmation */}
+          {/* Payment Confirmation - Manual Entry & Bulk Text
+              Purpose: Allow admins to confirm payments for individual students or process multiple payments at once.
+              Modes: Manual Entry (single) | Bulk Text (multiple) | Office Page (office-handled)
+          */}
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ marginBottom: '1rem' }}>💰 Payment Confirmation</h3>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              {/* Tab 1: Single payment confirmation */}
+              <button className={`btn ${paymentTab === 'manual' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPaymentTab('manual')}>Manual Entry</button>
+              {/* Tab 2: Batch payment confirmation */}
+              <button className={`btn ${paymentTab === 'bulk' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPaymentTab('bulk')}>Bulk Text</button>
+              {/* Navigate to office payment handling page */}
+              <button className="btn btn-secondary btn-sm" onClick={() => navigate('/office')}>Office Page</button>
             </div>
+            {paymentTab === 'manual' ? (
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input className="form-control" placeholder="Enter Roll Number" value={manualRoll} onChange={e => setManualRoll(e.target.value)} />
+                <button className="btn btn-success" onClick={confirmPayment}>Confirm</button>
+              </div>
+            ) : paymentTab === 'bulk' ? (
+              <div>
+                <textarea className="form-control" rows={4} placeholder="Enter roll numbers (one per line, or comma-separated)"
+                  value={bulkRolls} onChange={e => setBulkRolls(e.target.value)} />
+                <button className="btn btn-success" style={{ marginTop: '0.5rem' }} onClick={bulkConfirm}>Confirm All</button>
+              </div>
+            ) : null}
+          </div>
+        </>
+      )}
+
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ marginBottom: '1rem' }}>🔑 Login Credentials</h3>
+        <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}></p>
+        <div className="form-row">
+          <div className="form-group">
+            <label>Roll Number / Staff ID</label>
+            <input className="form-control" value={credRoll} onChange={e => setCredRoll(e.target.value)} placeholder="Enter ID" />
+          </div>
+          <div className="form-group">
+            <label>Username</label>
+            <input className="form-control" value={credUsername} onChange={e => setCredUsername(e.target.value)} placeholder="Set username" />
+          </div>
+        </div>
+        <div className="form-group">
+          <label>Password</label>
+          <input className="form-control" type="text" value={credPassword} onChange={e => setCredPassword(e.target.value)} placeholder="Set or change password" />
+        </div>
+        <button className="btn btn-primary" onClick={saveCredentials}>Save Credentials</button>
+      </div>
+
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ marginBottom: '1rem' }}>📂 Registration Filters</h3>
+        <div className="form-row">
+          <div className="form-group">
+            <label>View</label>
+            <select className="form-control" value={filterView} onChange={e => setFilterView(e.target.value)}>
+              <option value="registered">Registered</option>
+              <option value="allocated">Allocated</option>
+              <option value="need-allocation">Need Allocation</option>
+              <option value="deallocated">Deallocated</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Advance Payment</label>
+            <select className="form-control" value={filterAdvancePaid} onChange={e => setFilterAdvancePaid(e.target.value)}>
+              <option value="">All</option>
+              <option value="true">Advance Paid</option>
+              <option value="false">Advance Not Paid</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Final Payment</label>
+            <select className="form-control" value={filterFinalPaid} onChange={e => setFilterFinalPaid(e.target.value)}>
+              <option value="">All</option>
+              <option value="true">Final Paid</option>
+              <option value="false">Final Not Paid</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Route</label>
+            <select className="form-control" value={filterRoute} onChange={e => setFilterRoute(e.target.value)}>
+              <option value="">All Routes</option>
+              {routes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+            </select>
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={loadFilteredRegistrations}>Load Filtered Data</button>
+
+        {filteredRegs.length > 0 && (
+          <div style={{ marginTop: '1rem', maxHeight: '380px', overflowY: 'auto' }}>
+            <table className="stop-table">
+              <thead>
+                <tr><th>Name</th><th>ID</th><th>Status</th><th>Advance</th><th>Final</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {filteredRegs.map(reg => (
+                  <tr key={reg._id}>
+                    <td>{reg.name}</td>
+                    <td>{reg.registerNumber || reg.employeeId}</td>
+                    <td>{reg.registrationStatus}</td>
+                    <td>{reg.advancePaid ? 'Yes' : 'No'}</td>
+                    <td>{reg.fullFeePaid ? 'Yes' : 'No'}</td>
+                    <td style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {reg.advancePaid && reg.registrationStatus !== 'allocated' && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => moveToWaitlist(reg._id)}>Waitlist</button>
+                      )}
+                      <button className="btn btn-danger btn-sm" onClick={() => deallocateUser(reg._id)}>Deallocate</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'registration')}>Send Reg Mail</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'allocation')}>Send Alloc Mail</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'deallocation')}>Send Dealloc Mail</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+
+      {false && (
+        <>
+          {/* TEMPORARILY BLOCKED - Route-wise Allocation View */}
+          {/* Route-wise Allocation View
+              Purpose: View and manage student allocations for a specific route.
+              Features: Route selector | View type (allocated vs paid+unallocated) | Scrollable results table
+          */}
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ marginBottom: '1rem' }}>🧭 Route-wise Allocation View</h3>
+            <div className="form-row">
+              <div className="form-group">
+                {/* Route selector dropdown */}
+                <label>Route</label>
+                <select className="form-control" value={routeViewRoute} onChange={e => setRouteViewRoute(e.target.value)}>
+                  <option value="">Select route</option>
+                  {routes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                {/* View type selector: allocated students or paid students waiting for allocation */}
+                <label>View Type</label>
+                <select className="form-control" value={routeViewType} onChange={e => setRouteViewType(e.target.value)}>
+                  <option value="allocated">Allocated Ones</option>
+                  <option value="need-allocation">Paid & Need Allocation</option>
+                </select>
+              </div>
+            </div>
+            {/* Load button to fetch route data */}
+            <button className="btn btn-primary" onClick={loadRouteView}>Load Route View</button>
+
+            {/* Display results table with students and allocation actions */}
+            {routeViewData.length > 0 && (
+              <div style={{ marginTop: '1rem', maxHeight: '320px', overflowY: 'auto' }}>
+                <table className="stop-table">
+                  <thead>
+                    <tr><th>Name</th><th>ID</th><th>Status</th><th>Advance</th><th>Final</th><th>Action</th></tr>
+                  </thead>
+                  <tbody>
+                    {routeViewData.map(reg => (
+                      <tr key={reg._id}>
+                        <td>{reg.name}</td>
+                        <td>{reg.registerNumber || reg.employeeId}</td>
+                        <td>{reg.registrationStatus}</td>
+                        <td>{reg.advancePaid ? 'Yes' : 'No'}</td>
+                        <td>{reg.fullFeePaid ? 'Yes' : 'No'}</td>
+                        <td>
+                          {/* Waitlist option for students needing allocation */}
+                          {routeViewType === 'need-allocation' && (
+                            <button className="btn btn-secondary btn-sm" onClick={() => moveToWaitlist(reg._id)}>Waitlist</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Route Cards */}
       <h2 style={{ marginBottom: '1rem' }}>🗺️ Routes Overview</h2>
@@ -375,7 +607,7 @@ export default function AdminDashboard() {
                 <span style={{ fontWeight: 600 }}>Year-wise Split:</span>
                 {[1, 2, 3, 4, 5].map(y => (
                   <span key={y} style={{ color: 'var(--text-muted)' }}>
-                    Y{y}: {route.studentsByYear?.[`year${y}`] || 0}
+                    Y{y}: {route.studentsByYear?.[`year${y}`] || 0} ({route.studentsByYearPercent?.[`year${y}`] || 0}%)
                   </span>
                 ))}
               </div>
@@ -465,7 +697,11 @@ export default function AdminDashboard() {
                 <tbody>
                   {modal.registrations.map(reg => (
                     <tr key={reg._id} style={{ opacity: reg.isBlocked ? 0.5 : 1 }}>
-                      <td style={{ fontWeight: 600 }}>
+                      <td
+                        style={{ fontWeight: 600, cursor: 'pointer', textDecoration: selectedCommuterId === reg._id ? 'underline' : 'none' }}
+                        onClick={() => setSelectedCommuterId(selectedCommuterId === reg._id ? null : reg._id)}
+                        title="Click to show mail options"
+                      >
                         {reg.name} {reg.isBlocked && <span style={{ color: 'var(--accent-rose)', fontSize: '0.75rem', fontWeight: 700 }}>[BLOCKED]</span>}
                       </td>
                       <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{reg.registerNumber || reg.employeeId}</td>
@@ -495,6 +731,13 @@ export default function AdminDashboard() {
                         <button className="btn btn-sm" style={{ marginLeft: '5px', background: reg.isBlocked ? 'var(--accent-emerald)' : 'var(--text-muted)', color: 'white', border: 'none' }} onClick={() => toggleBlock(reg._id, reg.isBlocked)}>
                           {reg.isBlocked ? 'Unblock' : 'Block'}
                         </button>
+                        {selectedCommuterId === reg._id && (
+                          <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'registration')}>Reg Mail</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'allocation')}>Alloc Mail</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'deallocation')}>Dealloc Mail</button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}

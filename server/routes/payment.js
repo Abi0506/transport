@@ -1,22 +1,9 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const xlsx = require('xlsx');
 const router = express.Router();
 const Payment = require('../models/Payment');
 const Registration = require('../models/Registration');
-
-// Configure multer for Excel uploads
-const excelUpload = multer({
-  dest: path.join(__dirname, '..', 'uploads'),
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.includes('excel') || file.mimetype.includes('spreadsheetml') || file.originalname.match(/\.(xlsx|xls|csv)$/)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only Excel files are allowed'), false);
-    }
-  }
-});
 
 // Configure multer for PDF uploads
 const storage = multer.diskStorage({
@@ -45,22 +32,43 @@ const upload = multer({
 // Upload receipt
 router.post('/upload-receipt', upload.single('receipt'), async (req, res) => {
   try {
-    const { rollNumber, registrationId } = req.body;
+    const { rollNumber, receiptNumber, registrationId } = req.body;
+    const normalizedRollNumber = (rollNumber || '').trim();
+    const normalizedReceiptNumber = (receiptNumber || '').trim();
 
     if (!req.file) {
       return res.status(400).json({ message: 'PDF receipt file is required' });
     }
 
+    if (!normalizedRollNumber || !normalizedReceiptNumber) {
+      return res.status(400).json({ message: 'Roll number and receipt number are required' });
+    }
+
+    const uploadedFileName = path.parse(req.file.originalname).name.trim();
+    if (uploadedFileName !== normalizedRollNumber) {
+      return res.status(400).json({ message: 'PDF filename must match the roll number or staff ID' });
+    }
+
+    const existingReceipt = await Payment.findOne({ receiptNumber: normalizedReceiptNumber });
+    if (existingReceipt && existingReceipt.rollNumber !== normalizedRollNumber) {
+      return res.status(400).json({ message: 'This receipt number is already recorded for another user' });
+    }
+
     // Find or create payment record
-    let payment = await Payment.findOne({ rollNumber });
+    let payment = await Payment.findOne({ rollNumber: normalizedRollNumber });
     if (payment) {
+      if (payment.receiptNumber && payment.receiptNumber !== normalizedReceiptNumber) {
+        return res.status(400).json({ message: 'A different receipt number is already recorded for this roll number' });
+      }
+      payment.receiptNumber = normalizedReceiptNumber;
       payment.receiptFile = req.file.path;
       payment.paidStatus = 'uploaded';
       payment.confirmationMethod = 'upload';
     } else {
       payment = new Payment({
         registration: registrationId,
-        rollNumber,
+        rollNumber: normalizedRollNumber,
+        receiptNumber: normalizedReceiptNumber,
         receiptFile: req.file.path,
         paidStatus: 'uploaded',
         confirmationMethod: 'upload'
@@ -73,6 +81,7 @@ router.post('/upload-receipt', upload.single('receipt'), async (req, res) => {
       await Registration.findByIdAndUpdate(registrationId, {
         advancePaid: false, // Not confirmed yet, just uploaded
         receiptFile: req.file.path,
+        advanceReceiptNumber: normalizedReceiptNumber,
         advanceConfirmationMethod: 'upload'
       });
     }
@@ -84,74 +93,19 @@ router.post('/upload-receipt', upload.single('receipt'), async (req, res) => {
 });
 
 // Submit cancellation request
-router.post('/cancel-request', upload.single('letter'), async (req, res) => {
+router.post('/cancel-request', async (req, res) => {
   try {
     const { registrationId, reason } = req.body;
     if (!registrationId) return res.status(400).json({ message: 'Registration ID required' });
+    if (!reason || !reason.trim()) return res.status(400).json({ message: 'Cancellation reason is required' });
     
     await Registration.findByIdAndUpdate(registrationId, {
       cancellationRequested: true,
-      cancellationReason: reason,
-      cancellationLetter: req.file ? req.file.path : null
+      cancellationReason: reason.trim(),
+      cancellationLetter: null
     });
     
     res.json({ message: 'Cancellation request submitted' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Upload excel for bulk update
-router.post('/upload-excel/:type', excelUpload.single('file'), async (req, res) => {
-  try {
-    const { type } = req.params; // 'advance' or 'final'
-    if (!req.file) return res.status(400).json({ message: 'Excel file required' });
-    
-    const workbook = xlsx.readFile(req.file.path);
-    const sheetName = workbook.SheetNames[0];
-    const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
-    
-    // Assume roll numbers are in the first column
-    const rollNumbers = data.map(row => row[0]).filter(Boolean).map(String).map(s => s.trim());
-    
-    const results = { confirmed: [], failed: [] };
-    
-    for (const rollNumber of rollNumbers) {
-      if (rollNumber.toLowerCase() === 'roll number' || rollNumber.toLowerCase() === 'rollno' || rollNumber.toLowerCase() === 'id') continue;
-      try {
-        const registration = await Registration.findOne({
-          $or: [{ registerNumber: rollNumber }, { employeeId: rollNumber }]
-        });
-        
-        if (registration) {
-          if (type === 'advance') {
-            if (registration.receiptFile) {
-              registration.advancePaid = true;
-              registration.advanceConfirmationMethod = 'bulk';
-            } else {
-              results.failed.push({ rollNumber, error: 'Advance slip not uploaded by user' });
-              continue;
-            }
-          } else if (type === 'final') {
-            if (registration.finalReceiptFile) {
-              registration.fullFeePaid = true;
-              registration.finalConfirmationMethod = 'bulk';
-            } else {
-              results.failed.push({ rollNumber, error: 'Final slip not uploaded by user' });
-              continue;
-            }
-          }
-          await registration.save();
-          results.confirmed.push(rollNumber);
-        } else {
-          results.failed.push({ rollNumber, error: 'Registration not found' });
-        }
-      } catch (err) {
-        results.failed.push({ rollNumber, error: err.message });
-      }
-    }
-    
-    res.json({ message: `Excel processed: Confirmed ${results.confirmed.length} payments.`, results });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -178,42 +132,47 @@ router.post('/upload-final-receipt', upload.single('receipt'), async (req, res) 
 // Manual confirmation by office staff
 router.post('/confirm-manual', async (req, res) => {
   try {
-    const { rollNumber, confirmedBy } = req.body;
+    const { rollNumber, receiptNumber, confirmedBy } = req.body;
+    const normalizedRollNumber = (rollNumber || '').trim();
+    const normalizedReceiptNumber = (receiptNumber || '').trim();
 
-    let payment = await Payment.findOne({ rollNumber });
-    if (!payment) {
-      // Create new payment entry for manual confirmation
-      const registration = await Registration.findOne({
-        $or: [{ registerNumber: rollNumber }, { employeeId: rollNumber }]
-      });
-
-      payment = new Payment({
-        registration: registration?._id,
-        rollNumber,
-        paidStatus: 'confirmed',
-        confirmationMethod: 'manual',
-        confirmedBy: confirmedBy || 'Office Staff',
-        confirmedAt: new Date()
-      });
-    } else {
-      payment.paidStatus = 'confirmed';
-      payment.confirmationMethod = 'manual';
-      payment.confirmedBy = confirmedBy || 'Office Staff';
-      payment.confirmedAt = new Date();
+    if (!normalizedRollNumber) {
+      return res.status(400).json({ message: 'Roll number or staff ID is required' });
     }
+
+    const query = normalizedReceiptNumber
+      ? { rollNumber: normalizedRollNumber, receiptNumber: normalizedReceiptNumber }
+      : { rollNumber: normalizedRollNumber };
+
+    const payment = await Payment.findOne(query);
+    if (!payment) {
+      return res.status(404).json({ message: normalizedReceiptNumber ? 'No matching receipt record found' : 'Payment record not found' });
+    }
+
+    if (normalizedReceiptNumber && payment.receiptNumber !== normalizedReceiptNumber) {
+      return res.status(400).json({ message: 'Receipt number does not match this roll number or staff ID' });
+    }
+
+    payment.paidStatus = 'confirmed';
+    payment.confirmationMethod = 'manual';
+    payment.confirmedBy = confirmedBy || 'Office Staff';
+    payment.confirmedAt = new Date();
     await payment.save();
 
     // Update registration
     const registration = await Registration.findOne({
-      $or: [{ registerNumber: rollNumber }, { employeeId: rollNumber }]
+      $or: [{ registerNumber: normalizedRollNumber }, { employeeId: normalizedRollNumber }]
     });
     if (registration) {
       registration.advancePaid = true;
       registration.advanceConfirmationMethod = 'manual';
+      if (payment.receiptNumber) {
+        registration.advanceReceiptNumber = payment.receiptNumber;
+      }
       await registration.save();
     }
 
-    res.json({ message: `Payment confirmed for ${rollNumber}`, payment });
+    res.json({ message: `Payment confirmed for ${normalizedRollNumber}`, payment });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

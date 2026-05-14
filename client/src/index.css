@@ -323,8 +323,8 @@ select.form-control { appearance: none; background-image: url("data:image/svg+xm
   .stepper { flex-wrap: wrap; gap: 4px; }
   .step::after { display: none; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .navbar-links { display: none; }
   .card-grid.cols-3 { grid-template-columns: 1fr; }
+  .card-grid.cols-2 { grid-template-columns: 1fr; }
 }
 
 /* ===== SCROLLBAR ===== */

@@ -5,7 +5,7 @@ export default function LandingPage() {
     <div className="fade-in">
       <section className="hero">
         <h1>PSG iTech <span>Transport</span><br />Registration Portal</h1>
-        <p>Register for college bus transport facility for AY 2026–27. Choose your route, submit your details, and secure your seat.</p>
+        <p>Register for college bus transport facility for AY 2026–27.</p>
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
           <Link to="/register/student" className="btn btn-primary btn-lg">Student Registration</Link>
           <Link to="/register/employee" className="btn btn-secondary btn-lg">Faculty / Staff</Link>
@@ -19,7 +19,7 @@ export default function LandingPage() {
         marginTop: '-1rem',
         color: 'white',
         boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
-        animation: 'slideDown 0.5s ease-out',        maxWidth: '750px',
+        animation: 'slideDown 0.5s ease-out',        maxWidth: '500px',
         margin: '-1rem auto 3rem auto'
       }}>        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ fontSize: '3.5rem', flexShrink: 0 }}>💰</div>
@@ -28,7 +28,7 @@ export default function LandingPage() {
               Advance Payment: ₹5,000
             </h3>
             <p style={{ margin: '0.3rem 0', fontSize: '1rem', opacity: '0.95' }}>
-              ✓ Fully refundable if seat not allocated • 📱 Upload receipt or visit office
+              ✓ Fully refundable if seat not allocated
             </p>
           </div>
         </div>
@@ -36,7 +36,7 @@ export default function LandingPage() {
 
       {/* Registration Cards */}
       <div className="card-grid cols-2" style={{ marginTop: '0', marginBottom: '3rem' }}>
-        <Link to="/register/student" style={{ textDecoration: 'none' }}>
+        <Link to="/register/student" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
           <div className="card">
             <div className="card-icon blue">🎓</div>
             <h3>Student Registration</h3>
@@ -44,7 +44,7 @@ export default function LandingPage() {
             <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--accent-amber)' }}>Phase I: 2nd–5th Year • Phase II: 1st Year</div>
           </div>
         </Link>
-          <Link to="/register/employee" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <Link to="/register/employee" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
             <div className="card hover-glow">
               <div className="card-icon emerald">👨‍🏫</div>
               <h3>Faculty / Staff Registration</h3>
@@ -60,33 +60,35 @@ export default function LandingPage() {
           <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
             📅 Important Dates — AY 2026–27
           </h3>
-          <table className="dates-table">
-            <thead>
-              <tr>
-                <th>Year of Study</th>
-                <th>Registration Opens</th>
-                <th>Registration Closes</th>
-                <th>Seat Allocation</th>
-                <th>Fee Deadline</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>2nd – 5th Year & Staff/Faculty</strong></td>
-                <td>15 May 2026</td>
-                <td>26 Jun 2026</td>
-                <td>30 Jun 2026</td>
-                <td>10 Jul 2026</td>
-              </tr>
-              <tr>
-                <td><strong>1st Year</strong></td>
-                <td>1 Jul 2026</td>
-                <td>31 Jul 2026</td>
-                <td>1 Aug 2026</td>
-                <td>15 Aug 2026</td>
-              </tr>
-            </tbody>
-          </table>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="dates-table">
+              <thead>
+                <tr>
+                  <th>Year of Study</th>
+                  <th>Registration Opens</th>
+                  <th>Registration Closes</th>
+                  <th>Seat Allocation</th>
+                  <th>Fee Deadline</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>2nd – 5th Year & Staff/Faculty</strong></td>
+                  <td>15 May 2026</td>
+                  <td>26 Jun 2026</td>
+                  <td>30 Jun 2026</td>
+                  <td>10 Jul 2026</td>
+                </tr>
+                <tr>
+                  <td><strong>1st Year</strong></td>
+                  <td>1 Jul 2026</td>
+                  <td>31 Jul 2026</td>
+                  <td>1 Aug 2026</td>
+                  <td>15 Aug 2026</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div className="card" style={{ marginBottom: '2rem' }}>
@@ -110,7 +112,7 @@ export default function LandingPage() {
         <div className="card">
           <h3 style={{ marginBottom: '1rem' }}>💰 Advance Payment</h3>
           <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            An advance of <strong style={{ color: 'var(--accent-amber)' }}>₹5,000</strong> must be paid after registration. 
+            An advance of <strong style={{ color: 'var(--accent-amber)' }}>₹5,000</strong> must be paid before the final annual fee payment. 
             This amount is <strong>fully refundable</strong> if seat is not allocated. 
             Login to upload the payment receipt or visit the office for manual confirmation.
           </p>

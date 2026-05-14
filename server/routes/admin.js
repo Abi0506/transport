@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Route = require('../models/Route');
 const Registration = require('../models/Registration');
+const bcrypt = require('bcryptjs');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 
 // Apply admin auth to all routes
@@ -74,8 +75,14 @@ router.get('/routes', async (req, res) => {
         ).length;
       }
       const studentTotal = registrations.filter(r => r.userType === 'student').length;
+      const studentsByYearPercent = {};
+      for (let y = 1; y <= 5; y++) {
+        const key = `year${y}`;
+        studentsByYearPercent[key] = studentTotal > 0 ? Math.round((studentsByYear[key] / studentTotal) * 100) : 0;
+      }
       const totalRegistered = registrations.length;
       const allocatedCount = registrations.filter(r => r.registrationStatus === 'allocated').length;
+      const needAllocationCount = registrations.filter(r => r.advancePaid && ['pending', 'waitlisted'].includes(r.registrationStatus)).length;
 
       // Stop-level counts
       const stopCounts = route.stops.map(stop => {
@@ -99,11 +106,13 @@ router.get('/routes', async (req, res) => {
         capacity: route.capacity,
         totalRegistered,
         allocatedCount,
+        needAllocationCount,
         occupancyPercent: route.capacity > 0 ? Math.round((totalRegistered / route.capacity) * 100) : 0,
         facultyCount,
         staffCount,
         studentTotal,
         studentsByYear,
+        studentsByYearPercent,
         facultyPercent: route.capacity > 0 ? Math.round((facultyCount / route.capacity) * 100) : 0,
         staffPercent: route.capacity > 0 ? Math.round((staffCount / route.capacity) * 100) : 0,
         studentPercent: route.capacity > 0 ? Math.round((studentTotal / route.capacity) * 100) : 0,
@@ -127,6 +136,29 @@ router.get('/route/:routeId/stop/:stopName/registrations', async (req, res) => {
       boardingPointRoute: routeId,
       boardingPoint: decodeURIComponent(stopName)
     }).sort({ createdAt: -1 });
+
+    res.json(registrations);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Route-wise allocation views
+router.get('/route/:routeId/view', async (req, res) => {
+  try {
+    const { routeId } = req.params;
+    const { view = 'allocated' } = req.query;
+
+    const query = { boardingPointRoute: routeId };
+    if (view === 'allocated') {
+      query.registrationStatus = 'allocated';
+    } else if (view === 'need-allocation') {
+      query.advancePaid = true;
+      query.registrationStatus = { $in: ['pending', 'waitlisted'] };
+    }
+
+    const registrations = await Registration.find(query)
+      .sort({ distanceOrder: 1, createdAt: 1 });
 
     res.json(registrations);
   } catch (error) {
@@ -177,6 +209,47 @@ router.post('/block/:registrationId', async (req, res) => {
   }
 });
 
+// ============ LOGIN CREDENTIALS ============
+
+router.post('/credentials', async (req, res) => {
+  try {
+    const { rollNumber, loginUsername, password } = req.body;
+
+    if (!rollNumber || !loginUsername || !password) {
+      return res.status(400).json({ message: 'Roll number/staff ID, username, and password are required' });
+    }
+
+    const registration = await Registration.findOne({
+      $or: [{ registerNumber: rollNumber.trim() }, { employeeId: rollNumber.trim() }]
+    });
+
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    const existingUsername = await Registration.findOne({
+      loginUsername: loginUsername.trim(),
+      _id: { $ne: registration._id }
+    });
+
+    if (existingUsername) {
+      return res.status(400).json({ message: 'This username is already in use' });
+    }
+
+    registration.loginUsername = loginUsername.trim();
+    registration.loginPasswordHash = await bcrypt.hash(password, 10);
+    await registration.save();
+
+    res.json({
+      message: 'Login credentials saved successfully',
+      registrationId: registration._id,
+      loginUsername: registration.loginUsername
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ============ EDIT STOPS ============
 
 router.put('/route/:routeId/stops', async (req, res) => {
@@ -198,6 +271,72 @@ router.put('/route/:routeId/stops', async (req, res) => {
 });
 
 const { sendMail } = require('../utils/mailer');
+
+const buildRegistrationMail = (registration) => `
+  <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+    <div style="background: #2f5ea8; color: #fff; padding: 16px; text-align: center; font-size: 24px; font-weight: 700;">
+      Transport Section PSG iTech
+    </div>
+    <div style="padding: 24px; color: #222; line-height: 1.7;">
+      <p>Dear ${registration.name},</p>
+      <p>Thank you for registering in the Transport App of PSGiTech for availing college bus during AY 2026-27 from the stop <strong>${registration.boardingPoint}</strong>.</p>
+      <p><strong>Your login credentials are:</strong></p>
+      <p style="margin-left: 16px;">User name: Register Number / D.No.<br />Password: Date of Birth (yyyymmdd)</p>
+      <p><strong>Advance Payment:</strong> ₹5,000 must be paid in advance (cash at office). This amount is refundable as per transport rules.</p>
+      <p>For First Year and Lateral Students, login access will be provided after the seat allocation.</p>
+      <p>Allocation will be done based on your boarding point and the distance matrix.</p>
+      <p>If you are allotted a seat, you will receive an allocation mail regarding bus fees, payment date, bus route number, and other procedures.</p>
+      <p><strong>Important:</strong> Please refer to the Transport Guidelines for detailed information.</p>
+      <p>You can share your suggestions in: <a href="http://localhost:7078app/suggestion">http://localhost:7078app/suggestion</a></p>
+      <p>Thank you<br />With Regards<br />Team Transport</p>
+    </div>
+  </div>
+`;
+
+const buildAllocationMail = (registration, route) => `
+  <div style="font-family: Arial, sans-serif; padding: 20px;">
+    <h2>Seat Allocated</h2>
+    <p>Dear ${registration.name},</p>
+    <p>Congratulations! A seat has been successfully allocated to you on Route ${route.routeNumber} (${route.routeName}).</p>
+    <p>Boarding Point: ${registration.boardingPoint}</p>
+    <p>Final Fee: ₹${Math.round(registration.finalFees || 0).toLocaleString()}</p>
+    <p>Team Transport</p>
+  </div>
+`;
+
+const buildCancellationPolicyBlock = `
+  <div style="margin-top: 16px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; background: #eef2ff; font-weight: 700; color: #1d4ed8;">
+      <div style="padding: 10px; border-right: 1px solid #d1d5db;">PERIOD</div>
+      <div style="padding: 10px;">REFUND</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #e5e7eb;"><div style="padding: 10px;">0 – 3 Months</div><div style="padding: 10px; color: #059669; font-weight: 700;">75% refundable</div></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #e5e7eb;"><div style="padding: 10px;">4 – 6 Months</div><div style="padding: 10px; color: #d97706; font-weight: 700;">50% refundable</div></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #e5e7eb;"><div style="padding: 10px;">7 – 9 Months</div><div style="padding: 10px; color: #e11d48; font-weight: 700;">25% refundable</div></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #e5e7eb;"><div style="padding: 10px;">10 – 12 Months</div><div style="padding: 10px; color: #475569; font-weight: 700;">Nil</div></div>
+  </div>
+`;
+
+const buildDeallocationMail = (registration, reason, options = {}) => `
+  <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+    <div style="background: #2f5ea8; color: #fff; padding: 16px; text-align: center; font-size: 28px; font-weight: 700;">
+      PSG iTech - Transport Section
+    </div>
+    <div style="padding: 24px; color: #222; line-height: 1.6;">
+      <p>Dear ${registration.name},</p>
+      <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 14px; border-radius: 4px; margin: 16px 0; color: #7f1d1d;">
+        <p style="margin: 0; font-weight: 600;">Subject: Deallocation of Transport Seat</p>
+        <p style="margin: 8px 0 0 0;">Your transport registration has been deallocated.</p>
+        <p style="margin: 8px 0 0 0;">Reason: ${reason || 'As per transport rules and admin action'}</p>
+        <p style="margin: 8px 0 0 0;">Advance Paid: ${registration.advancePaid ? 'Yes' : 'No'} | Final Fee Paid: ${registration.fullFeePaid ? 'Yes' : 'No'}</p>
+      </div>
+      ${options.includeCancellationPolicy ? `<p style="margin-top: 16px;"><strong>Cancellation Policy (Applicable for paid cancellation cases):</strong></p>${buildCancellationPolicyBlock}` : ''}
+      <p>With regards,</p>
+      <p style="font-weight: 700;">Team Transport</p>
+    </div>
+    <div style="padding: 12px 24px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px; text-align: center;">Email: transport.psgitech@gmail.com</div>
+  </div>
+`;
 
 // ============ ALLOCATION ENGINE ============
 
@@ -371,9 +510,96 @@ router.get('/cancellations', async (req, res) => {
 // Approve cancellation
 router.post('/approve-cancellation/:id', async (req, res) => {
   try {
-    await Registration.findByIdAndUpdate(req.params.id, { registrationStatus: 'cancelled' });
+    const registration = await Registration.findById(req.params.id);
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    registration.registrationStatus = 'cancelled';
+    registration.allocatedRoute = null;
+    registration.allocatedStop = null;
+    registration.cancellationRequested = false;
+    await registration.save();
+
+    if (registration.mailId) {
+      const includeCancellationPolicy = Boolean(registration.advancePaid || registration.fullFeePaid);
+      await sendMail(
+        registration.mailId,
+        'Deallocation of Transport Seat',
+        buildDeallocationMail(registration, registration.cancellationReason || 'Cancellation request approved', { includeCancellationPolicy })
+      );
+    }
+
     res.json({ message: 'Cancellation approved' });
   } catch(err) { res.status(500).json({message: err.message}) }
+});
+
+// Mark a user as waitlisted manually
+router.post('/waitlist/:registrationId', async (req, res) => {
+  try {
+    const registration = await Registration.findById(req.params.registrationId);
+    if (!registration) return res.status(404).json({ message: 'Registration not found' });
+    if (!registration.advancePaid) return res.status(400).json({ message: 'Only advance-paid users can be moved to waiting list' });
+
+    registration.registrationStatus = 'waitlisted';
+    await registration.save();
+    res.json({ message: 'User moved to waiting list', registration });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Manual deallocation with reason
+router.post('/deallocate/:registrationId', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const registration = await Registration.findById(req.params.registrationId);
+    if (!registration) return res.status(404).json({ message: 'Registration not found' });
+
+    registration.registrationStatus = 'rejected';
+    registration.allocatedRoute = null;
+    registration.allocatedStop = null;
+    registration.deallocationReason = reason || 'Deallocated by admin';
+    registration.deallocatedAt = new Date();
+    await registration.save();
+
+    if (registration.mailId) {
+      await sendMail(registration.mailId, 'Deallocation of Transport Seat', buildDeallocationMail(registration, registration.deallocationReason));
+    }
+
+    res.json({ message: 'User deallocated successfully', registration });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Resend mails if required
+router.post('/resend-mail/:registrationId', async (req, res) => {
+  try {
+    const { type } = req.body;
+    const registration = await Registration.findById(req.params.registrationId)
+      .populate('boardingPointRoute', 'routeNumber routeName')
+      .populate('allocatedRoute', 'routeNumber routeName');
+    if (!registration) return res.status(404).json({ message: 'Registration not found' });
+    if (!registration.mailId) return res.status(400).json({ message: 'User does not have an email ID' });
+
+    if (type === 'registration') {
+      await sendMail(registration.mailId, 'Transport Registration Confirmation - AY 2026-27', buildRegistrationMail(registration));
+    } else if (type === 'allocation') {
+      const route = registration.allocatedRoute || registration.boardingPointRoute;
+      if (!route) return res.status(400).json({ message: 'No route found for allocation mail' });
+      await sendMail(registration.mailId, 'Bus Seat Allocated', buildAllocationMail(registration, route));
+    } else if (type === 'deallocation') {
+      const includeCancellationPolicy = registration.registrationStatus === 'cancelled' && Boolean(registration.advancePaid || registration.fullFeePaid);
+      await sendMail(registration.mailId, 'Deallocation of Transport Seat', buildDeallocationMail(registration, registration.deallocationReason, { includeCancellationPolicy }));
+    } else {
+      return res.status(400).json({ message: 'Invalid mail type' });
+    }
+
+    res.json({ message: 'Mail sent successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 // Deallocate unpaid (deallocate all allocated who have not paid advance)
@@ -457,11 +683,24 @@ router.post('/swap-stop', async (req, res) => {
 
 router.get('/registrations', async (req, res) => {
   try {
-    const { userType, status, route, page = 1, limit = 50 } = req.query;
+    const { userType, status, route, page = 1, limit = 50, advancePaid, fullFeePaid, view } = req.query;
     const query = {};
     if (userType) query.userType = userType;
     if (status) query.registrationStatus = status;
     if (route) query.boardingPointRoute = route;
+    if (advancePaid === 'true' || advancePaid === 'false') query.advancePaid = advancePaid === 'true';
+    if (fullFeePaid === 'true' || fullFeePaid === 'false') query.fullFeePaid = fullFeePaid === 'true';
+
+    if (view === 'registered') {
+      query.registrationStatus = { $in: ['pending', 'allocated', 'waitlisted'] };
+    } else if (view === 'deallocated') {
+      query.registrationStatus = { $in: ['rejected', 'cancelled', 'rejected_refund'] };
+    } else if (view === 'allocated') {
+      query.registrationStatus = 'allocated';
+    } else if (view === 'need-allocation') {
+      query.advancePaid = true;
+      query.registrationStatus = { $in: ['pending', 'waitlisted'] };
+    }
 
     const total = await Registration.countDocuments(query);
     const registrations = await Registration.find(query)
