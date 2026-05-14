@@ -331,7 +331,7 @@ export default function Registration() {
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
       
       <div className="page-header" style={{ textAlign: 'center' }}>
-        <h1 style={{ fontSize: 'clamp(1.3rem, 4vw, 2rem)' }}>{isStudent ? '🎓 Student' : '👨‍🏫 Faculty / Staff'} Registration</h1>
+        <h1 style={{ fontSize: 'clamp(1.3rem, 4vw, 2rem)' }}>{isStudent ? 'Student' : 'Faculty & Staff'} Registration</h1>
       </div>
 
       {step <= (isStudent ? 9 : 5) && (

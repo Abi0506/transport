@@ -1468,3 +1468,7 @@ select.form-control { appearance: none; background-image: url("data:image/svg+xm
 ::-webkit-scrollbar-track { background: var(--bg-primary); }
 ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+@media (max-width: 768px) {
+  .hide-mobile { display: none !important; }
+}
