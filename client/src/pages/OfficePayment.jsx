@@ -30,6 +30,8 @@ export default function OfficePayment() {
     setRollNumber('')
     setReceiptNumber('')
     setRecord(null)
+    // Clear any current user session
+    sessionStorage.removeItem('currentUser')
   }
 
   const confirmReceipt = async () => {
@@ -48,7 +50,10 @@ export default function OfficePayment() {
       setToast({ type: 'success', msg: res.data.message })
       setRecord(res.data.payment)
     } catch (err) {
-      setToast({ type: 'error', msg: err.response?.data?.message || 'Verification failed' })
+      const message = err.response?.status === 404
+        ? 'No registration found for this roll/staff ID'
+        : err.response?.data?.message || 'Verification failed'
+      setToast({ type: 'error', msg: message })
       setRecord(null)
     } finally {
       setLoading(false)
@@ -83,8 +88,7 @@ export default function OfficePayment() {
         <div className="card" style={{ maxWidth: '720px', margin: '0 auto' }}>
           <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h2 style={{ marginBottom: '0.25rem', color: 'var(--accent-blue)' }}>Receipt Verification</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Verify student payments</p>
+             
             </div>
             <button className="btn btn-secondary btn-sm" onClick={handleLogout}>
               Logout

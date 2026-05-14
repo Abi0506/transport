@@ -8,6 +8,7 @@ import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import PaymentUpload from './pages/PaymentUpload'
 import OfficePayment from './pages/OfficePayment'
+import RoutesViewer from './pages/RoutesViewer'
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
             <Route path="/dashboard" element={<UserDashboard />} />
             <Route path="/payment" element={<PaymentUpload />} />
             <Route path="/office" element={<OfficePayment />} />
+            <Route path="/routes-viewer" element={<RoutesViewer />} />
             <Route path="/admin" element={<AdminLogin />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -29,7 +31,7 @@ function App() {
         </main>
       </div>
       <footer className="footer">
-        <p>© 2026 PSG Institute of Technology and Applied Research — Transport Section (3TL)</p>
+        <p>© 2026 PSG Institute of Technology and Applied Research</p>
       </footer>
     </Router>
   )

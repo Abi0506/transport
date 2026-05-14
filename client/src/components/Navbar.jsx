@@ -5,6 +5,7 @@ export default function Navbar() {
   const navigate = useNavigate()
   const currentUser = sessionStorage.getItem('currentUser')
   const isOffice = location.pathname === '/office'
+  const hideAuthButtons = location.pathname === '/login' || location.pathname.startsWith('/admin') || location.pathname.startsWith('/register') || isOffice
 
   const handleLogout = () => {
     sessionStorage.removeItem('currentUser')
@@ -21,8 +22,7 @@ export default function Navbar() {
         </div>
       </Link>
       <div className="navbar-links">
-        {/* Hide login/logout buttons on /office page */}
-        {!isOffice && (
+        {!hideAuthButtons && (
           currentUser ? (
             <button onClick={handleLogout} className="btn btn-secondary btn-sm">Logout</button>
           ) : (

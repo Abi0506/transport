@@ -283,7 +283,6 @@ const buildRegistrationMail = (registration) => `
       <p><strong>Your login credentials are:</strong></p>
       <p style="margin-left: 16px;">User name: Register Number / D.No.<br />Password: Date of Birth (yyyymmdd)</p>
       <p><strong>Advance Payment:</strong> ₹5,000 must be paid in advance (cash at office). This amount is refundable as per transport rules.</p>
-      <p>For First Year and Lateral Students, login access will be provided after the seat allocation.</p>
       <p>Allocation will be done based on your boarding point and the distance matrix.</p>
       <p>If you are allotted a seat, you will receive an allocation mail regarding bus fees, payment date, bus route number, and other procedures.</p>
       <p><strong>Important:</strong> Please refer to the Transport Guidelines for detailed information.</p>
@@ -314,6 +313,29 @@ const buildCancellationPolicyBlock = `
     <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #e5e7eb;"><div style="padding: 10px;">4 – 6 Months</div><div style="padding: 10px; color: #d97706; font-weight: 700;">50% refundable</div></div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #e5e7eb;"><div style="padding: 10px;">7 – 9 Months</div><div style="padding: 10px; color: #e11d48; font-weight: 700;">25% refundable</div></div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #e5e7eb;"><div style="padding: 10px;">10 – 12 Months</div><div style="padding: 10px; color: #475569; font-weight: 700;">Nil</div></div>
+  </div>
+`;
+
+const buildAdvanceRefundMail = (registration, reason) => `
+  <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+    <div style="background: #2f5ea8; color: #fff; padding: 16px; text-align: center; font-size: 28px; font-weight: 700;">
+      PSG iTech - Transport Section
+    </div>
+    <div style="padding: 24px; color: #222; line-height: 1.6;">
+      <p>Dear ${registration.name},</p>
+      <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 14px; border-radius: 4px; margin: 16px 0; color: #7f1d1d;">
+        <p style="margin: 0; font-weight: 600;">Subject: Deallocation of Transport Seat</p>
+        <p style="margin: 8px 0 0 0;">Your transport registration has been deallocated.</p>
+        <p style="margin: 8px 0 0 0;">Reason: ${reason || 'As per transport rules and admin action'}</p>
+        <p style="margin: 8px 0 0 0;">Advance Paid: Yes | Final Fee Paid: No</p>
+      </div>
+      <p style="margin-top: 16px; font-weight: 600;">Refund Details:</p>
+      <p style="margin: 8px 0;">Your advance payment of ₹5,000 will be refunded by <strong>October 7, 2026</strong>.</p>
+      <p style="margin: 8px 0;">Please allow 5-7 business days for the refund to be processed into your account.</p>
+      <p>With regards,</p>
+      <p style="font-weight: 700;">Team Transport</p>
+    </div>
+    <div style="padding: 12px 24px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px; text-align: center;">Email: transport.psgitech@gmail.com</div>
   </div>
 `;
 
@@ -522,11 +544,25 @@ router.post('/approve-cancellation/:id', async (req, res) => {
     await registration.save();
 
     if (registration.mailId) {
-      const includeCancellationPolicy = Boolean(registration.advancePaid || registration.fullFeePaid);
+      let emailContent;
+      const reason = registration.cancellationReason || 'Cancellation request approved';
+      
+      // Choose email template based on payment status
+      if (registration.advancePaid && !registration.fullFeePaid) {
+        // Advance only - send advance refund email
+        emailContent = buildAdvanceRefundMail(registration, reason);
+      } else if (registration.fullFeePaid) {
+        // Full payment - send deallocation with cancellation policy
+        emailContent = buildDeallocationMail(registration, reason, { includeCancellationPolicy: true });
+      } else {
+        // No payment - send basic deallocation
+        emailContent = buildDeallocationMail(registration, reason, { includeCancellationPolicy: false });
+      }
+      
       await sendMail(
         registration.mailId,
         'Deallocation of Transport Seat',
-        buildDeallocationMail(registration, registration.cancellationReason || 'Cancellation request approved', { includeCancellationPolicy })
+        emailContent
       );
     }
 

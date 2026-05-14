@@ -139,18 +139,41 @@ router.post('/confirm-manual', async (req, res) => {
     if (!normalizedRollNumber) {
       return res.status(400).json({ message: 'Roll number or staff ID is required' });
     }
-
-    const query = normalizedReceiptNumber
-      ? { rollNumber: normalizedRollNumber, receiptNumber: normalizedReceiptNumber }
-      : { rollNumber: normalizedRollNumber };
-
-    const payment = await Payment.findOne(query);
-    if (!payment) {
-      return res.status(404).json({ message: normalizedReceiptNumber ? 'No matching receipt record found' : 'Payment record not found' });
+    if (!normalizedReceiptNumber) {
+      return res.status(400).json({ message: 'Receipt number is required' });
     }
 
-    if (normalizedReceiptNumber && payment.receiptNumber !== normalizedReceiptNumber) {
+    let registration = await Registration.findOne({
+      $or: [{ registerNumber: normalizedRollNumber }, { employeeId: normalizedRollNumber }]
+    });
+
+    if (!registration) {
+      const isStudentRoll = /^7155\d{8}$/.test(normalizedRollNumber);
+      registration = new Registration({
+        userType: isStudentRoll ? 'student' : 'faculty',
+        ...(isStudentRoll ? { registerNumber: normalizedRollNumber } : { employeeId: normalizedRollNumber }),
+        registrationCompleted: false,
+        registrationStatus: 'pending'
+      });
+      await registration.save({ validateBeforeSave: false });
+    }
+
+    let payment = await Payment.findOne({ rollNumber: normalizedRollNumber });
+    if (!payment) {
+      payment = new Payment({
+        registration: registration._id,
+        rollNumber: normalizedRollNumber,
+        receiptNumber: normalizedReceiptNumber,
+        paidStatus: 'pending'
+      });
+    }
+
+    if (payment.receiptNumber && normalizedReceiptNumber && payment.receiptNumber !== normalizedReceiptNumber) {
       return res.status(400).json({ message: 'Receipt number does not match this roll number or staff ID' });
+    }
+
+    if (normalizedReceiptNumber) {
+      payment.receiptNumber = normalizedReceiptNumber;
     }
 
     payment.paidStatus = 'confirmed';
@@ -159,18 +182,13 @@ router.post('/confirm-manual', async (req, res) => {
     payment.confirmedAt = new Date();
     await payment.save();
 
-    // Update registration
-    const registration = await Registration.findOne({
-      $or: [{ registerNumber: normalizedRollNumber }, { employeeId: normalizedRollNumber }]
-    });
-    if (registration) {
-      registration.advancePaid = true;
-      registration.advanceConfirmationMethod = 'manual';
-      if (payment.receiptNumber) {
-        registration.advanceReceiptNumber = payment.receiptNumber;
-      }
-      await registration.save();
+    registration.advancePaid = true;
+    registration.advanceConfirmationMethod = 'manual';
+    registration.advancePaymentDate = payment.confirmedAt;
+    if (payment.receiptNumber) {
+      registration.advanceReceiptNumber = payment.receiptNumber;
     }
+    await registration.save({ validateBeforeSave: false });
 
     res.json({ message: `Payment confirmed for ${normalizedRollNumber}`, payment });
   } catch (error) {

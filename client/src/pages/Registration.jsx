@@ -12,7 +12,6 @@ const DEPARTMENTS = [
   'B.E. Electronics and Communication Engineering',
   'B.E. Instrumentation and Control Engineering',
   'B.E. Mechanical Engineering',
-  'B.E. Robotics and Artificial Intelligence',
 
   // B.Tech Programs
   'B.Tech. Artificial Intelligence and Data Science',
@@ -53,12 +52,18 @@ export default function Registration() {
   const [otpSent, setOtpSent] = useState(false)
   const [otp, setOtp] = useState('')
   const [verifyingOtp, setVerifyingOtp] = useState(false)
+  const [yearCategory, setYearCategory] = useState('') // 'phase_ii', 'phase_i'
+  const [rollNumberVerified, setRollNumberVerified] = useState(false)
+  const [verifyingRoll, setVerifyingRoll] = useState(false)
+  const [finalReceiptFile, setFinalReceiptFile] = useState(null)
+  const [finalReceiptNumber, setFinalReceiptNumber] = useState('')
+  const [finalPaymentDate, setFinalPaymentDate] = useState('')
 
   const [form, setForm] = useState({
     name: '', dateOfBirth: '', address: '', pincode: '',
     phoneNumber: '', emergencyPhoneNumber: '', mailId: '',
     department: '', institution: 'PSG iTech', boardingPoint: '',
-    registerNumber: '', gender: 'Male', academicYear: '2',
+    registerNumber: '', gender: 'Male', academicYear: '',
     employeeId: '', category: '', designation: '', employeeType: 'faculty'
   })
 
@@ -149,6 +154,10 @@ export default function Registration() {
         }
       } else {
         setForm({ ...form, registerNumber: regNum })
+            // Reset verification when user changes roll number
+            if (regNum !== form.registerNumber) {
+              setRollNumberVerified(false)
+            }
       }    } else if (e.target.name === 'mailId' && isStudent) {
       const email = e.target.value
       setForm({ ...form, mailId: email })
@@ -194,8 +203,14 @@ export default function Registration() {
     sessionStorage.setItem(storageKey, JSON.stringify(draft))
   }, [storageKey, form, selectedRoute, selectedStop, searchStop, guidelinesAccepted, instructionsAccepted, advanceDecision, otpSent, otp, step])
 
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
   const stepLabels = isStudent 
-    ? ['Guidelines', 'Instructions', 'Details', 'Boarding Point', 'Advance Payment', 'Review', 'Success']
+    ? ['Year Selection', 'Roll Number', 'Guidelines', 'Instructions', 'Details', 'Boarding Point', 'Advance Payment', 'Final Fee', 'Review', 'Success']
     : ['Guidelines', 'Instructions', 'Details', 'Boarding Point', 'Review', 'Success']
 
   const handleSendOtp = async () => {
@@ -226,6 +241,8 @@ export default function Registration() {
         advancePaymentDecision: isStudent ? advanceDecision : null,
         advanceReceiptNumber: isStudent ? advanceReceiptNumber : null,
         advancePaymentDate: isStudent ? advancePaymentDate : null,
+        fullPaymentReceiptNumber: isStudent ? finalReceiptNumber : null,
+        fullPaymentDate: isStudent ? finalPaymentDate : null,
         advanceAmount: getAdvanceAmount(),
         payableAmount: getPayableAmount(),
         totalAmount: getFinalFee()
@@ -234,13 +251,41 @@ export default function Registration() {
       if (isStudent && advanceReceiptFile) {
         formData.append('advanceReceipt', advanceReceiptFile)
       }
+      if (isStudent && finalReceiptFile) {
+        formData.append('fullPaymentReceipt', finalReceiptFile)
+      }
       
       const endpoint = `/api/register/${isEmployee ? form.employeeType : userType}`
       const res = await axios.post(endpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setResult(res.data)
-      setStep(isStudent ? 7 : 6)
+      setStep(isStudent ? 10 : 6)
+      
+      // Reset form and all state after successful registration
+      setForm({
+        name: '', dateOfBirth: '', address: '', pincode: '',
+        phoneNumber: '', emergencyPhoneNumber: '', mailId: '',
+        department: '', institution: 'PSG iTech', boardingPoint: '',
+        registerNumber: '', gender: 'Male', academicYear: '',
+        employeeId: '', category: '', designation: '', employeeType: 'faculty'
+      })
+      setSelectedStop(null)
+      setAdvanceDecision('')
+      setAdvanceReceiptNumber('')
+      setAdvancePaymentDate('')
+      setAdvanceReceiptFile(null)
+      setFinalReceiptFile(null)
+      setFinalReceiptNumber('')
+      setFinalPaymentDate('')
+      setGuidelinesAccepted(false)
+      setInstructionsAccepted(false)
+      setOtp('')
+      setOtpSent(false)
+      setYearCategory('')
+      setRollNumberVerified(false)
+      setSelectedRoute('')
+      setSearchStop('')
     } catch (err) {
       setToast({ type: 'error', msg: err.response?.data?.message || 'Verification or Registration failed' })
     } finally {
@@ -249,84 +294,201 @@ export default function Registration() {
   }
 
   const canNext = () => {
-    if (step === 1) return guidelinesAccepted
-    if (step === 2) return instructionsAccepted
-    if (step === 3) {
-      const base = form.name && form.dateOfBirth && form.address && form.pincode &&
-        form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
-      if (isStudent) {
-        if (form.registerNumber.length !== 12 || !form.registerNumber.startsWith('7155')) {
-          return false
-        }
-        if (!form.mailId.endsWith('@psgitech.ac.in')) {
-          return false
-        }
+    if (isStudent) {
+      if (step === 1) return !!yearCategory
+      if (step === 2) return rollNumberVerified
+      if (step === 3) return guidelinesAccepted
+      if (step === 4) return instructionsAccepted
+      if (step === 5) {
+        const base = form.name && form.dateOfBirth && form.address && form.pincode &&
+          form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
+        if (form.registerNumber.length !== 12 || !form.registerNumber.startsWith('7155')) return false
+        if (!form.mailId.endsWith('@psgitech.ac.in')) return false
         const validation = validateRegisterNumber(form.registerNumber)
         return base && validation.valid && form.gender && form.academicYear
       }
-      return base && form.employeeId
-    }
-    if (step === 4) return selectedStop !== null
-    
-    if (isStudent) {
-      if (step === 5) return advanceDecision === 'yes' && advanceReceiptFile && advanceReceiptNumber && advancePaymentDate
+      if (step === 6) return selectedStop !== null
+      if (step === 7) return advanceDecision === 'yes' && advanceReceiptFile && advanceReceiptNumber && advancePaymentDate
+      if (step === 8) return finalReceiptFile && finalReceiptNumber && finalPaymentDate
+      if (step === 9) return true
+      return true
     } else {
+      if (step === 1) return guidelinesAccepted
+      if (step === 2) return instructionsAccepted
+      if (step === 3) {
+        const base = form.name && form.dateOfBirth && form.address && form.pincode &&
+          form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
+        return base && form.employeeId
+      }
+      if (step === 4) return selectedStop !== null
       if (step === 5) return true
+      return true
     }
-    
-    return true
-  }  // Debug: log the step value
-  useEffect(() => {
-    console.log('Registration page loaded. Step:', step, 'UserType:', userType, 'isStudent:', isStudent)
-  }, [step, userType, isStudent])
+  }
 
   return (
     <div className="page fade-in">
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
       
       <div className="page-header" style={{ textAlign: 'center' }}>
-        <h1>{isStudent ? '🎓 Student' : '👨‍🏫 Faculty / Staff'} Registration</h1>
-        <p>
-          {isStudent ? ' ' :
-            ' '}
-        </p>
+        <h1 style={{ fontSize: 'clamp(1.3rem, 4vw, 2rem)' }}>{isStudent ? '🎓 Student' : '👨‍🏫 Faculty / Staff'} Registration</h1>
       </div>
 
-          <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-        Current Step: {step} | User Type: {userType} | Is Student: {isStudent ? 'Yes' : 'No'}
-      </div>
-
-      {step <= (isStudent ? 6 : 5) && (
-        <div className="stepper">
-          {stepLabels.map((label, i) => (
+      {step <= (isStudent ? 9 : 5) && (
+        <div className="stepper" style={{ flexWrap: 'wrap' }}>
+          {stepLabels.slice(0, -1).map((label, i) => (
             <div key={i} className={`step ${step === i + 1 ? 'active' : step > i + 1 ? 'completed' : ''}`}>
               <span className="step-num">{step > i + 1 ? '✓' : i + 1}</span>
-              {label}
+              <span className="step-label-text">{label}</span>
             </div>
           ))}
         </div>
       )}
 
-      {step === 1 && (
+      {/* Fallback if step is out of range */}
+      {(step < 1 || step > (isStudent ? 9 : 6)) && (
+        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--accent-rose)' }}>
+          Error: Invalid step. Please refresh the page.
+        </div>
+      )}
+
+      {/* ===== STUDENT STEP 1: Year Selection ===== */}
+      {isStudent && step === 1 && (
+        <div className="reg-form slide-up">
+          <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
+            <div className="section-title" style={{ justifyContent: 'center' }}>🎓 Select Your Year Category</div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '2rem' }}>
+              Choose your year of study for AY 2026–27
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '400px', margin: '0 auto' }}>
+              {[
+                { val: 'phase_i', label: 'Phase I Allocation', icon: '📚', desc: '2nd to 5th Year' },
+                {
+                  val: 'phase_ii',
+                  label: 'Phase II Allocation',
+                  icon: '🆕',
+                  desc: '1st Year (Fresh Admission) and 2nd Year – Lateral Entry'
+                }
+              ].map(opt => (
+                <div key={opt.val}
+                  onClick={() => {
+                    if (opt.val === 'phase_ii') return
+                    setYearCategory(opt.val)
+                  }}
+                  style={{
+                    padding: '1.25rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: opt.val === 'phase_ii' ? '2px solid rgba(59, 130, 246, 0.35)' : yearCategory === opt.val ? '2px solid var(--accent-blue)' : '2px solid var(--border-glass)',
+                    background: opt.val === 'phase_ii' ? 'rgba(148, 163, 184, 0.08)' : yearCategory === opt.val ? 'rgba(37, 99, 235, 0.08)' : 'var(--bg-secondary)',
+                    cursor: opt.val === 'phase_ii' ? 'not-allowed' : 'pointer',
+                    opacity: opt.val === 'phase_ii' ? 0.6 : 1,
+                    transition: 'var(--transition)',
+                    textAlign: 'left'
+                  }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: '1.5rem' }}>{opt.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '1rem' }}>{opt.label}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{opt.desc}</div>
+                      {opt.val === 'phase_ii' && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--accent-rose)', marginTop: '0.25rem' }}>Temporarily disabled</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== STUDENT STEP 2: Roll Number Verification ===== */}
+      {isStudent && step === 2 && (
+        <div className="reg-form slide-up">
+          <div className="card" style={{ padding: '2rem' }}>
+            <div className="section-title">🔢 Enter Your Roll Number</div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+              Enter your 12-digit register number. The office must have recorded your advance payment before you can proceed.
+            </p>
+            <div className="form-group">
+              <label>Register Number *</label>
+              <input
+                className="form-control"
+                name="registerNumber"
+                value={form.registerNumber}
+                onChange={handleChange}
+                placeholder="e.g. 7155XXXXXXXX"
+                maxLength={12}
+                style={{ fontSize: '1.1rem', letterSpacing: '1px' }}
+              />
+              {form.registerNumber.length > 0 && form.registerNumber.length < 12 && (
+                <small style={{ color: 'var(--accent-amber)', marginTop: '0.25rem', display: 'block' }}>
+                  12 digits required, starting with 7155
+                </small>
+              )}
+            </div>
+            {form.registerNumber.length === 12 && !rollNumberVerified && (
+              <button className="btn btn-primary" style={{ width: '100%' }} disabled={verifyingRoll}
+                onClick={async () => {
+                  const validation = validateRegisterNumber(form.registerNumber)
+                  if (!validation.valid) {
+                    setToast({ type: 'error', msg: validation.error })
+                    return
+                  }
+                  setForm(prev => ({ ...prev, academicYear: validation.academicYear }))
+                  setVerifyingRoll(true)
+                  try {
+                    const res = await axios.get(`/api/register/check-advance/${form.registerNumber}`)
+                    if (res.data.alreadyRegistered) {
+                      setToast({ type: 'error', msg: '❌ You have already registered. Cannot register again.' })
+                      setTimeout(() => navigate('/'), 3000)
+                    } else if (res.data.advancePaid) {
+                      setRollNumberVerified(true)
+                      setToast({ type: 'success', msg: '✅ Advance payment verified!' })
+                    } else {
+                      setToast({ type: 'error', msg: '❌ Advance payment not found. Please pay ₹5,000 at the office first.' })
+                      setTimeout(() => navigate('/'), 3000)
+                    }
+                  } catch {
+                    setToast({ type: 'error', msg: '❌ Roll number not found. Please pay the advance at the office first.' })
+                    setTimeout(() => navigate('/'), 3000)
+                  } finally {
+                    setVerifyingRoll(false)
+                  }
+                }}>
+                {verifyingRoll ? 'Verifying...' : '🔍 Verify Roll Number'}
+              </button>
+            )}
+            {rollNumberVerified && (
+              <div style={{ padding: '1rem', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(5,150,105,0.12)', borderRadius: 'var(--radius-sm)', marginTop: '1rem', marginBottom: '1rem' }}>
+                <span style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}>✅ Advance payment verified for {form.registerNumber}</span>
+              </div>
+            )}
+            {rollNumberVerified && (
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setStep(s => s + 1)}>
+                  Next →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===== STUDENT STEP 3 / EMPLOYEE STEP 1: Guidelines ===== */}
+      {((isStudent && step === 3) || (!isStudent && step === 1)) && (
         <div>
           <GuidelinesStep accepted={guidelinesAccepted} setAccepted={setGuidelinesAccepted} />
         </div>
       )}
 
-      {/* Fallback if step is out of range */}
-      {(step < 1 || step > (isStudent ? 7 : 6)) && (
-        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--accent-rose)' }}>
-          Error: Invalid step value {step}. Please refresh the page.
-        </div>
-      )}
-
-      {/* Step 2: Instructions */}
-      {step === 2 && (
+      {/* ===== STUDENT STEP 4 / EMPLOYEE STEP 2: Instructions ===== */}
+      {((isStudent && step === 4) || (!isStudent && step === 2)) && (
         <InstructionsStep accepted={instructionsAccepted} setAccepted={setInstructionsAccepted} />
       )}
 
-      {/* Step 3: Personal & Academic Details */}
-      {step === 3 && (
+      {/* Details: Student step 5, Employee step 3 */}
+      {((isStudent && step === 5) || (!isStudent && step === 3)) && (
         <div className="reg-form slide-up">
           <div className="card">
             <div className="section-title">📝 Personal & Academic Information</div>
@@ -341,7 +503,7 @@ export default function Registration() {
 
             <div className="form-row">
               <div className="form-group">
-                <label>{isStudent ? 'Register Number *' : 'Employee ID *'}</label>
+                <label>{isStudent ? 'Register Number' : 'Employee ID *'}</label>
                 <input 
                   className="form-control" 
                   name={isStudent ? 'registerNumber' : 'employeeId'}
@@ -349,6 +511,8 @@ export default function Registration() {
                   onChange={handleChange}
                   placeholder={isStudent ? 'e.g. 7155XXXXXXXX' : 'e.g. AXXXX'}
                   maxLength={isStudent ? 12 : undefined}
+                  readOnly={isStudent}
+                  style={isStudent ? { background: 'var(--bg-secondary)', cursor: 'not-allowed' } : {}}
                 />
                 {isStudent && form.registerNumber.length > 0 && form.registerNumber.length < 12 && (
                   <small style={{ color: 'var(--accent-amber)', marginTop: '0.25rem', display: 'block' }}>
@@ -457,8 +621,8 @@ export default function Registration() {
         </div>
       )}
 
-      {/* Step 4: Boarding Point */}
-      {step === 4 && (
+      {/* Boarding: Student step 6, Employee step 4 */}
+      {((isStudent && step === 6) || (!isStudent && step === 4)) && (
         <div className="reg-form slide-up">
           <div className="card">
             <div className="section-title">🚌 Select Your Boarding Point</div>
@@ -472,9 +636,12 @@ export default function Registration() {
                 <span style={{ fontSize: '1.2rem' }}>📄</span>
                 <strong style={{ color: 'var(--accent-blue)' }}>Tentative Routes</strong>
               </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, marginBottom: '0.75rem' }}>
                 View the complete route schedule and bus stop information from the attached PDF
               </p>
+              <a href="https://drive.google.com/file/d/1MuxGySxOVv7roChzpDlq5J60P10TcO03/view?usp=sharing" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '0.5rem 1rem', backgroundColor: 'var(--accent-blue)', color: 'white', borderRadius: '6px', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 600, transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'} onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+                📄 View Routes PDF
+              </a>
             </div>
 
             {/* Search Bar */}
@@ -539,7 +706,8 @@ export default function Registration() {
                       gap: '1rem',
                       alignItems: 'center'
                     }}>
-                      <span style={{ fontWeight: 600, minWidth: '50px' }}>⏰ {stop.time}</span>
+                      <span style={{ fontWeight: 600, minWidth: '80px' }}>₹ {stop.fees}</span>
+                      <span style={{ fontWeight: 600, minWidth: '60px' }}>⏰ {stop.time}</span>
                     </span>
                   </div>
                 ))
@@ -577,8 +745,8 @@ export default function Registration() {
         </div>
       )}
 
-      {/* Step 5: Advance Payment Gate / Receipt */}
-      {isStudent && step === 5 && (
+      {/* Student Step 7: Advance Payment */}
+      {isStudent && step === 7 && (
         <div className="reg-form slide-up">
           <div className="card">
             <div className="section-title">💳 Advance Payment</div>
@@ -615,7 +783,7 @@ export default function Registration() {
                 </div>
                 <div className="form-group">
                   <label>Date of Payment *</label>
-                  <input className="form-control" type="date" value={advancePaymentDate} onChange={(e) => setAdvancePaymentDate(e.target.value)} />
+                  <input className="form-control" type="date" value={advancePaymentDate} onChange={(e) => setAdvancePaymentDate(e.target.value)} max={new Date().toISOString().split('T')[0]} />
                 </div>
                 <div className="form-group">
                   <label>Upload Receipt PDF *</label>
@@ -677,8 +845,10 @@ export default function Registration() {
         </div>
       )}
 
-      {/* Step 5: Review for staff/faculty, Step 6: Review for students */}
-      {(isStudent ? step === 6 : step === 5) && (
+      {/* Final Fee Receipt Upload - Removed from registration, moved to dashboard */}
+
+      {/* Review: Student step 8, Employee step 5 */}
+      {(isStudent ? step === 8 : step === 5) && (
         <div className="reg-form slide-up">
           <div className="card">
             <div className="section-title">✅ Review Your Registration</div>
@@ -717,8 +887,8 @@ export default function Registration() {
         </div>
       )}
 
-      {/* Step 7/6: Success */}
-      {(isStudent ? step === 7 : step === 6) && result && (
+      {/* Success: Student step 10, Employee step 6 */}
+      {(isStudent ? step === 10 : step === 6) && result && (
         <div className="reg-form slide-up" style={{ textAlign: 'center' }}>
           <div className="card" style={{ padding: '3rem' }}>
             <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎉</div>
@@ -742,23 +912,23 @@ export default function Registration() {
       )}
 
       {/* Navigation */}
-      {(isStudent ? step <= 6 : step <= 5) && (
+      {(isStudent ? step <= 8 : step <= 5) && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginTop: '2rem', paddingBottom: '2rem' }}>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            {step > 1 && <button className="btn btn-secondary" onClick={() => setStep(s => s - 1)}>← Back</button>}
-            {(isStudent ? step < 6 : step < 5) && (
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+            {step > 1 && !(isStudent && step === 2) && <button className="btn btn-secondary" onClick={() => setStep(s => s - 1)}>← Back</button>}
+            {(isStudent ? step < 8 && step !== 2 : step < 5) && (
               <button className="btn btn-primary" disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
                 Next →
               </button>
             )}
-            {(isStudent ? step === 6 : step === 5) && !otpSent && (
+            {(isStudent ? step === 8 : step === 5) && !otpSent && (
               <button className="btn btn-primary btn-lg" disabled={submitting} onClick={handleSendOtp}>
                 {submitting ? 'Sending...' : 'Send OTP to Email'}
               </button>
             )}
           </div>
           
-          {(isStudent ? step === 6 : step === 5) && otpSent && (
+          {(isStudent ? step === 8 : step === 5) && otpSent && (
             <div style={{ background: 'var(--bg-glass)', padding: '1.5rem', borderRadius: '12px', width: '100%', maxWidth: '300px', textAlign: 'center' }}>
               <p style={{ fontSize: '0.85rem', marginBottom: '1rem', color: 'var(--text-secondary)' }}>Enter the OTP sent to {form.mailId}</p>
               <input className="form-control" placeholder="Enter OTP" value={otp} onChange={e => setOtp(e.target.value)} style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '2px', marginBottom: '1rem' }} />

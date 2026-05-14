@@ -63,6 +63,7 @@ const registrationSchema = new mongoose.Schema({
     enum: ['pending', 'allocated', 'rejected', 'confirmed', 'waitlisted', 'cancelled', 'rejected_refund'],
     default: 'pending'
   },
+  registrationCompleted: { type: Boolean, default: false },
   allocatedRoute: { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
   allocatedStop: { type: String },
 
@@ -133,8 +134,9 @@ registrationSchema.pre('save', function (next) {
 registrationSchema.index({ userType: 1, registrationStatus: 1 });
 registrationSchema.index({ boardingPoint: 1 });
 registrationSchema.index({ allocatedRoute: 1 });
-registrationSchema.index({ registerNumber: 1 });
-registrationSchema.index({ employeeId: 1 });
+registrationSchema.index({ registerNumber: 1 }, { unique: true, sparse: true });
+registrationSchema.index({ employeeId: 1 }, { unique: true, sparse: true });
+registrationSchema.index({ mailId: 1 }, { unique: true, sparse: true });
 registrationSchema.index({ loginUsername: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Registration', registrationSchema);

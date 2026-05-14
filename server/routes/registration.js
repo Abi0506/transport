@@ -50,7 +50,6 @@ const sendRegistrationConfirmation = async ({ mailId, name, stopName }) => {
           Password: Date of Birth (yyyymmdd)
         </p>
         <p><strong>Advance Payment:</strong> ₹5,000 must be paid in advance (cash at office). This amount is refundable as per transport rules.</p>
-        <p>For First Year and Lateral Students, login access will be provided after the seat allocation.</p>
         <p>Allocation will be done based on your boarding point and the distance matrix.</p>
         <p>If you are allotted a seat, you will receive an allocation mail regarding bus fees, payment date, bus route number, and other procedures.</p>
         <p><strong>Important:</strong> Please refer to the Transport Guidelines for detailed information.</p>
@@ -84,6 +83,30 @@ router.get('/boarding-points', async (req, res) => {
   }
 });
 
+// Check if advance payment exists for a roll number
+router.get('/check-advance/:registerNumber', async (req, res) => {
+  try {
+    const { registerNumber } = req.params;
+    const Payment = require('../models/Payment');
+    
+    // Only block completed registrations; office-created drafts can still be finished here
+    const existingReg = await Registration.findOne({ registerNumber, registrationCompleted: true });
+    if (existingReg) {
+      return res.json({ advancePaid: false, alreadyRegistered: true });
+    }
+    
+    // Check payment records
+    const payment = await Payment.findOne({ rollNumber: registerNumber, paidStatus: 'confirmed' });
+    if (payment) {
+      return res.json({ advancePaid: true, alreadyRegistered: false });
+    }
+    
+    res.json({ advancePaid: false, alreadyRegistered: false });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 router.post('/student', uploadMultiple, async (req, res) => {
   try {
     const registrationData = typeof req.body.registration === 'string'
@@ -103,9 +126,16 @@ router.post('/student', uploadMultiple, async (req, res) => {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
     }
 
-    const existing = await Registration.findOne({ registerNumber, userType: 'student' });
+    const existing = await Registration.findOne({ registerNumber, userType: 'student', registrationCompleted: true });
+    const draft = await Registration.findOne({ registerNumber, userType: 'student', registrationCompleted: false });
     if (existing) {
       return res.status(400).json({ message: 'Student with this register number already registered' });
+    }
+
+    // Check email uniqueness
+    const emailExists = await Registration.findOne({ mailId, _id: { $ne: draft?._id } });
+    if (emailExists) {
+      return res.status(400).json({ message: 'This email is already used in another registration' });
     }
 
     const route = await Route.findOne({ 'stops.name': boardingPoint });
@@ -113,8 +143,11 @@ router.post('/student', uploadMultiple, async (req, res) => {
       return res.status(400).json({ message: 'Invalid boarding point' });
     }
     const stop = route.stops.find(s => s.name === boardingPoint);
+    // If office has already confirmed advance payment, prefer that payment record
+    const Payment = require('../models/Payment');
+    const payment = await Payment.findOne({ rollNumber: registerNumber, paidStatus: 'confirmed' });
 
-    const registration = new Registration({
+    const registrationPayload = {
       userType: 'student',
       registerNumber,
       name,
@@ -134,18 +167,21 @@ router.post('/student', uploadMultiple, async (req, res) => {
       mailId,
       guidelinesAccepted,
       instructionsAccepted,
-      receiptFile: req.files?.advanceReceipt?.[0]?.filename || null,
-      advanceReceiptNumber: advanceReceiptNumber || null,
-      advancePaid: !!req.files?.advanceReceipt?.[0],
-      advancePaymentDate: advancePaymentDate ? new Date(advancePaymentDate) : null,
-      advanceConfirmationMethod: req.files?.advanceReceipt?.[0] ? 'upload' : null,
+      receiptFile: req.files?.advanceReceipt?.[0]?.filename || (payment ? payment.receiptFile : null),
+      advanceReceiptNumber: advanceReceiptNumber || (payment ? payment.receiptNumber : null),
+      advancePaid: !!req.files?.advanceReceipt?.[0] || !!payment,
+      advancePaymentDate: advancePaymentDate ? new Date(advancePaymentDate) : (payment ? payment.confirmedAt || payment.createdAt : null),
+      advanceConfirmationMethod: req.files?.advanceReceipt?.[0] ? 'upload' : (payment ? (payment.confirmationMethod || 'manual') : null),
       finalReceiptFile: req.files?.fullPaymentReceipt?.[0]?.filename || null,
       fullPaymentReceiptNumber: fullPaymentReceiptNumber || null,
       fullFeePaid: !!req.files?.fullPaymentReceipt?.[0],
       fullPaymentDate: fullPaymentDate ? new Date(fullPaymentDate) : null,
-      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null
-    });
+      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null,
+      registrationCompleted: true
+    };
 
+    const registration = draft || new Registration(registrationPayload);
+    Object.assign(registration, registrationPayload);
     await registration.save();
     await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint });
     res.status(201).json({
@@ -180,6 +216,12 @@ router.post('/faculty', uploadMultiple, async (req, res) => {
     const existing = await Registration.findOne({ employeeId, userType: 'faculty' });
     if (existing) {
       return res.status(400).json({ message: 'Faculty with this employee ID already registered' });
+    }
+
+    // Check email uniqueness
+    const emailExists = await Registration.findOne({ mailId });
+    if (emailExists) {
+      return res.status(400).json({ message: 'This email is already used in another registration' });
     }
 
     const route = await Route.findOne({ 'stops.name': boardingPoint });
@@ -250,6 +292,12 @@ router.post('/staff', uploadMultiple, async (req, res) => {
     const existing = await Registration.findOne({ employeeId, userType: 'staff' });
     if (existing) {
       return res.status(400).json({ message: 'Staff with this employee ID already registered' });
+    }
+
+    // Check email uniqueness
+    const emailExists = await Registration.findOne({ mailId });
+    if (emailExists) {
+      return res.status(400).json({ message: 'This email is already used in another registration' });
     }
 
     const route = await Route.findOne({ 'stops.name': boardingPoint });

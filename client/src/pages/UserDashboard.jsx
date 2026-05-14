@@ -6,13 +6,13 @@ export default function UserDashboard() {
   const [user, setUser] = useState(null)
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(true)
-  
+
   const [cancelReason, setCancelReason] = useState('')
   const [canceling, setCanceling] = useState(false)
   const [cancelOtp, setCancelOtp] = useState('')
   const [cancelOtpSent, setCancelOtpSent] = useState(false)
   const [sendingCancelOtp, setSendingCancelOtp] = useState(false)
-  
+
   const [finalFile, setFinalFile] = useState(null)
   const [uploadingFinal, setUploadingFinal] = useState(false)
 
@@ -20,7 +20,7 @@ export default function UserDashboard() {
 
   const handleFinalUpload = async () => {
     if (!finalFile) { setToast({ type: 'error', msg: 'Please select a PDF file' }); setTimeout(() => setToast(null), 3000); return; }
-    
+
     const rollNumber = user.registerNumber || user.employeeId
     const fileBaseName = finalFile.name.replace(/\.pdf$/i, '')
     if (fileBaseName !== rollNumber) {
@@ -39,7 +39,7 @@ export default function UserDashboard() {
       setToast({ type: 'success', msg: res.data.message })
       setFinalFile(null)
       setUser(prev => prev ? { ...prev, finalReceiptFile: finalFile.name, fullFeePaid: false, finalConfirmationMethod: 'upload' } : prev)
-    } catch (err) { setToast({ type: 'error', msg: err.response?.data?.message || 'Upload failed' }) } 
+    } catch (err) { setToast({ type: 'error', msg: err.response?.data?.message || 'Upload failed' }) }
     finally { setUploadingFinal(false); setTimeout(() => setToast(null), 4000) }
   }
 
@@ -109,6 +109,11 @@ export default function UserDashboard() {
   if (loading) return <div className="page" style={{ textAlign: 'center', paddingTop: '4rem' }}><h2>Loading...</h2></div>
   if (!user) return null
 
+  const isStudent = user.userType === 'student'
+  const totalAmount = user.finalFees || 0
+  const advanceAmount = isStudent ? 5000 : 0
+  const payableAmount = isStudent ? Math.max(0, totalAmount - advanceAmount) : totalAmount
+
   const statusColor = {
     pending: 'var(--accent-amber)', allocated: 'var(--accent-emerald)',
     rejected: 'var(--accent-rose)', confirmed: 'var(--accent-blue)', waitlisted: 'var(--accent-purple)'
@@ -117,9 +122,9 @@ export default function UserDashboard() {
   return (
     <div className="page fade-in">
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1>Welcome, {user.name}</h1>
+          <h1 style={{ fontSize: 'clamp(1.2rem, 4vw, 2rem)' }}>Welcome, {user.name}</h1>
           <p>Dashboard & Status</p>
         </div>
       </div>
@@ -144,12 +149,11 @@ export default function UserDashboard() {
                 ['Type', user.userType.charAt(0).toUpperCase() + user.userType.slice(1)],
                 ['ID', user.registerNumber || user.employeeId],
                 ['Boarding Point', user.boardingPoint],
-                ['Route', user.boardingPointRoute ? `${user.boardingPointRoute.routeNumber} — ${user.boardingPointRoute.routeName}` : '—'],
-                user.allocatedRoute ? ['Allocated Route', `${user.allocatedRoute.routeNumber} — ${user.allocatedRoute.routeName}`] : null
+                user.allocatedRoute ? ['Allocated Route', `${user.allocatedRoute.routeNumber}`] : null
               ].filter(Boolean).map(([k, v]) => (
                 <tr key={k}>
                   <td style={{ padding: '8px 0', color: 'var(--text-muted)', fontSize: '0.9rem', borderBottom: '1px solid var(--border-glass)' }}>{k}</td>
-                  <td style={{ padding: '8px 0', fontWeight: 500, fontSize: '0.9rem', textAlign: 'right', borderBottom: '1px solid var(--border-glass)' }}>{v}</td>
+                  <td style={{ padding: '8px 0', fontWeight: 500, fontSize: '0.9rem', textAlign: 'right', borderBottom: '1px solid var(--border-glass)', wordBreak: 'break-word' }}>{v}</td>
                 </tr>
               ))}
             </tbody>
@@ -159,11 +163,59 @@ export default function UserDashboard() {
         {/* Payment Section */}
         <div className="card">
           <div className="section-title">💳 Payment Status</div>
+
+          {/* Advance Payment Details (Student only) */}
+          {isStudent && (
+            <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--bg-glass)', borderRadius: '12px' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Advance Payment (₹5,000)</div>
+              <div style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+                {user.advancePaid
+                  ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span>
+                  : user.receiptFile
+                    ? <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span>
+                    : <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Not Paid</span>
+                }
+              </div>
+              {user.advanceReceiptNumber && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Receipt #: {user.advanceReceiptNumber}
+                </div>
+              )}
+              {user.advancePaymentDate && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Paid on: {new Date(user.advancePaymentDate).toLocaleDateString()}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Fee Breakdown */}
           <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--bg-glass)', borderRadius: '12px' }}>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Final Fee Payment Status</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Fee Breakdown</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Total Annual Fee</span>
+                <span style={{ fontWeight: 600 }}>₹{totalAmount.toLocaleString()}</span>
+              </div>
+              {isStudent && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Advance Paid</span>
+                  <span style={{ fontWeight: 600, color: 'var(--accent-emerald)' }}>- ₹{advanceAmount.toLocaleString()}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', borderTop: '1px solid var(--border-glass)', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Payable Amount</span>
+                <span style={{ fontWeight: 800, color: 'var(--accent-amber)' }}>₹{payableAmount.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Final Fee Payment Status */}
+          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--bg-glass)', borderRadius: '12px' }}>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 600 }}>Final Fee Payment</div>
             <div style={{ fontSize: '1.1rem' }}>
-              {user.fullFeePaid ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span> : 
-               user.finalReceiptFile ? <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span> : 
+              {user.fullFeePaid ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span> :
+               user.finalReceiptFile ? <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span> :
                <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Not Paid</span>}
             </div>
             {user.finalConfirmationMethod && (
@@ -173,19 +225,23 @@ export default function UserDashboard() {
             )}
           </div>
 
-          {!user.fullFeePaid && user.registrationStatus === 'allocated' && (
-            <div style={{ marginTop: '2rem' }}>
-              <div className="section-title">📤 Upload Final Fee Receipt</div>
-              <div className="upload-zone" onClick={() => document.getElementById('finalPdfInput').click()}>
-                <div className="icon">📄</div>
-                <p>{finalFile ? `Selected: ${finalFile.name}` : 'Click to select final PDF receipt'}</p>
+          {/* Upload Final Fee Receipt */}
+          {!user.fullFeePaid && !user.finalReceiptFile && (
+            <div style={{ marginTop: '1rem' }}>
+              <div className="section-title" style={{ fontSize: '0.9rem' }}>📤 Upload Final Fee Receipt</div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                Upload your final fee payment receipt (PDF). Filename must match your ID: <strong>{user.registerNumber || user.employeeId}.pdf</strong>
+              </p>
+              <div className="upload-zone" onClick={() => document.getElementById('finalPdfInput').click()} style={{ padding: '1.5rem 1rem' }}>
+                <div className="icon" style={{ fontSize: '2rem' }}>📄</div>
+                <p style={{ fontSize: '0.85rem' }}>{finalFile ? `Selected: ${finalFile.name}` : 'Click to select final PDF receipt'}</p>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                  PDF only • Max 5MB • Filename must match your ID
+                  PDF only • Max 5MB
                 </p>
               </div>
               <input id="finalPdfInput" type="file" accept=".pdf" style={{ display: 'none' }}
                 onChange={e => setFinalFile(e.target.files[0])} />
-              
+
               <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}
                 disabled={uploadingFinal || !finalFile} onClick={handleFinalUpload}>
                 {uploadingFinal ? 'Uploading...' : '⬆ Upload Final Receipt'}
@@ -198,18 +254,35 @@ export default function UserDashboard() {
       {/* Cancellation Section */}
       <div className="card" style={{ maxWidth: '1000px', margin: '1.5rem auto 0' }}>
         <div className="section-title">❌ Cancellation Request</div>
-        {user.cancellationRequested ? (
-          <div style={{ padding: '1rem', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.5)' }}>
-            <p style={{ fontWeight: 600, color: 'var(--accent-amber)' }}>Cancellation Request Submitted</p>
-            <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>Your request is under review by the transport office.</p>
+        {user.registrationStatus === 'cancelled' || user.cancellationRequested ? (
+          <div style={{
+            padding: '1.25rem',
+            background: 'rgba(245, 158, 11, 0.1)',
+            borderRadius: '12px',
+            border: '1px solid rgba(245, 158, 11, 0.5)',
+            marginTop: '0.75rem'
+          }}>
+            <p style={{ fontWeight: 600, color: 'var(--accent-amber)', marginBottom: '0.5rem' }}>Registration Cancelled</p>
+            <p style={{ fontSize: '0.85rem' }}>Your transport registration has already been cancelled.</p>
             {user.cancellationReason && <p style={{ fontSize: '0.85rem', marginTop: '0.5rem', fontStyle: 'italic' }}>Reason: {user.cancellationReason}</p>}
+          </div>
+        ) : user.fullFeePaid ? (
+          <div style={{
+            padding: '1.25rem',
+            background: 'rgba(239, 68, 68, 0.1)',
+            borderRadius: '12px',
+            border: '1px solid rgba(239, 68, 68, 0.5)',
+            marginTop: '0.75rem'
+          }}>
+            <p style={{ fontWeight: 600, color: 'var(--accent-rose)', marginBottom: '0.5rem' }}>❌ Cancellation Not Available</p>
+            <p style={{ fontSize: '0.85rem' }}>You have already paid the full fees. Cancellation is not permitted after complete payment.</p>
           </div>
         ) : (
           <div>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Reason for Cancellation</label>
             <textarea
               className="form-control"
-              rows={4}
+              rows={3}
               value={cancelReason}
               onChange={e => {
                 setCancelReason(e.target.value)

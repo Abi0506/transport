@@ -9,25 +9,18 @@ export default function LandingPage() {
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
           <Link to="/register/student" className="btn btn-primary btn-lg">Student Registration</Link>
           <Link to="/register/employee" className="btn btn-secondary btn-lg">Faculty / Staff</Link>
-        </div>      </section>      {/* Advance Payment Notice */}
-      <div style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        border: '3px solid #764ba2',
-        borderRadius: 'var(--radius-lg)',
-        padding: '1.25rem 1.5rem',
-        marginBottom: '3rem',
-        marginTop: '-1rem',
-        color: 'white',
-        boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
-        animation: 'slideDown 0.5s ease-out',        maxWidth: '500px',
-        margin: '-1rem auto 3rem auto'
-      }}>        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          <div style={{ fontSize: '3.5rem', flexShrink: 0 }}>💰</div>
+        </div>
+      </section>
+
+      {/* Advance Payment Notice */}
+      <div className="advance-notice">
+        <div className="advance-notice-content">
+          <div className="advance-notice-icon">💰</div>
           <div>
-            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.6rem', fontWeight: '700' }}>
-              Advance Payment: ₹5,000
+            <h3 className="advance-notice-title">
+              Advance Payment ₹5,000 is mandatory for registration.
             </h3>
-            <p style={{ margin: '0.3rem 0', fontSize: '1rem', opacity: '0.95' }}>
+            <p className="advance-notice-subtext">
               ✓ Fully refundable if seat not allocated
             </p>
           </div>
