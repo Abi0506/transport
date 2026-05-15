@@ -16,7 +16,7 @@ router.post('/send', async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10 minutes expiry
 
-    await sendMail(normalizedEmail, `Your Transport ${normalizedPurpose === 'cancellation' ? 'Cancellation' : 'Registration'} OTP`, `
+    const mailInfo = await sendMail(normalizedEmail, `Your Transport ${normalizedPurpose === 'cancellation' ? 'Cancellation' : 'Registration'} OTP`, `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
         <h2>Transport ${normalizedPurpose === 'cancellation' ? 'Cancellation' : 'Registration'} Verification</h2>
         <p>Your OTP for ${normalizedPurpose} is:</p>
@@ -24,6 +24,11 @@ router.post('/send', async (req, res) => {
         <p>This code will expire in 10 minutes.</p>
       </div>
     `);
+
+    if (!mailInfo) {
+      otpStore.delete(normalizedEmail);
+      throw new Error('OTP email delivery failed');
+    }
 
     res.json({ message: 'OTP sent successfully' });
   } catch (error) {

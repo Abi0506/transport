@@ -82,6 +82,13 @@ router.get('/boarding-points', async (req, res) => {
         distanceOrder: s.distanceOrder
       }))
     }));
+    // Log grouped routes to server console for debugging / visibility
+    try {
+      console.log('GET /api/register/boarding-points - grouped routes:\n', JSON.stringify(grouped, null, 2));
+    } catch (e) {
+      console.log('GET /api/register/boarding-points - grouped routes (truncated):', grouped);
+    }
+
     res.json(grouped);
   } catch (error) {
     res.status(500).json({ message: error.message });

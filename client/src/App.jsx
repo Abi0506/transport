@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import LandingPage from './pages/LandingPage'
 import Registration from './pages/Registration'
@@ -12,7 +12,7 @@ import RoutesViewer from './pages/RoutesViewer'
 
 function App() {
   return (
-    <Router basename="/transport">
+    <Router>
       <div className="app-container">
         <Navbar />
         <main className="main-content">

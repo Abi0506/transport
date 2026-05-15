@@ -22,6 +22,10 @@ const STUDENT_DEPARTMENTS = [
   'M.E Structural'
 ]
 
+// Boarding points stay hardcoded; OTPs still go through the live API.
+const USE_HARDCODED_BOARDING_POINTS = true
+const USE_HARDCODED_OTP_ROUTES = false
+
 const FACULTY_DEPARTMENTS = [
   'AIDS',
   'Arch',
@@ -133,6 +137,222 @@ const FACULTY_DESIGNATIONS = [
 // Remaining items are staff designations
 const STAFF_DESIGNATIONS = DESIGNATIONS.filter(d => !FACULTY_DESIGNATIONS.includes(d))
 
+// Hardcoded boarding points (fallback / development data extracted from Excel)
+const HARDCODED_ROUTES = [
+  {
+    routeId: 'R1',
+    routeNumber: 'R1',
+    routeName: 'Kuniamuthur',
+    capacity: 55,
+    stops: [
+      { name: 'Koaviputhur Pirivu', fees: 49500, time: '7:05 AM', distanceOrder: 1 },
+      { name: 'Kuniamuthur', fees: 49500, time: '7:10 AM', distanceOrder: 2 },
+      { name: 'Athupalam', fees: 49500, time: '7:15 AM', distanceOrder: 3 },
+      { name: 'Ukkadam', fees: 40000, time: '7:20 AM', distanceOrder: 4 },
+      { name: 'Chinthamani Bus Stop', fees: 36000, time: '7:30 AM', distanceOrder: 5 },
+      { name: 'Ramanathapuram', fees: 36000, time: '7:40 AM', distanceOrder: 6 },
+      { name: 'Central Studio', fees: 36000, time: '7:45 AM', distanceOrder: 7 }
+    ]
+  },
+  {
+    routeId: 'R2',
+    routeNumber: 'R2',
+    routeName: 'Vadavalli',
+    capacity: 55,
+    stops: [
+      { name: 'Bharathiyar University', fees: 55500, time: '7:05 AM', distanceOrder: 1 },
+      { name: 'Vadavalli Roundana', fees: 55500, time: '7:20 AM', distanceOrder: 2 },
+      { name: 'P.N.Pudur', fees: 55500, time: '7:25 AM', distanceOrder: 3 },
+      { name: 'Lawley Road', fees: 55500, time: '7:30 AM', distanceOrder: 4 },
+      { name: 'R.S.Puram', fees: 55500, time: '7:35 AM', distanceOrder: 5 },
+      { name: 'Chinthamani / Vadakovai', fees: 55500, time: '7:40 AM', distanceOrder: 6 }
+    ]
+  },
+  {
+    routeId: 'R3',
+    routeNumber: 'R3',
+    routeName: 'Peelamedu (NEW)',
+    capacity: 55,
+    stops: [
+      { name: 'Peelamedu', fees: 38000, time: '7:45 AM', distanceOrder: 1 },
+      { name: 'Hopes', fees: 38000, time: '7:55 AM', distanceOrder: 2 },
+      { name: 'KMCH', fees: 36000, time: '8:00 AM', distanceOrder: 3 },
+      { name: 'PLS Nagar', fees: 36000, time: '8:04 AM', distanceOrder: 4 }
+    ]
+  },
+  {
+    routeId: 'R4',
+    routeNumber: 'R4',
+    routeName: 'Karamadai',
+    capacity: 55,
+    stops: [
+      { name: 'Karamadai', fees: 57000, time: '6:55 AM', distanceOrder: 1 },
+      { name: 'Periyanaickenpalayam', fees: 57000, time: '7:15 AM', distanceOrder: 2 },
+      { name: 'Narasimmanaickenpalayam', fees: 57000, time: '7:20 AM', distanceOrder: 3 },
+      { name: 'NGGO Colony', fees: 50000, time: '7:25 AM', distanceOrder: 4 },
+      { name: 'Vellakinar', fees: 50000, time: '7:35 AM', distanceOrder: 5 },
+      { name: 'Athipalayam Pirivu', fees: 48000, time: '7:40 AM', distanceOrder: 6 },
+      { name: 'Chinnavedampatti Pirivu', fees: 48000, time: '7:45 AM', distanceOrder: 7 }
+    ]
+  },
+  {
+    routeId: 'R5',
+    routeNumber: 'R5',
+    routeName: 'Tirupur via Avinashi',
+    capacity: 55,
+    stops: [
+      { name: 'Tirupur - Kumar Nagar', fees: 50500, time: '7:15 AM', distanceOrder: 1 },
+      { name: 'SAP Theatre', fees: 50500, time: '7:18 AM', distanceOrder: 2 },
+      { name: 'Gandhinagar', fees: 50500, time: '7:20 AM', distanceOrder: 3 },
+      { name: 'Anupparpalayam', fees: 50500, time: '7:25 AM', distanceOrder: 4 },
+      { name: 'Poondi', fees: 50500, time: '7:30 AM', distanceOrder: 5 }
+    ]
+  },
+  {
+    routeId: 'R6',
+    routeNumber: 'R6',
+    routeName: 'Tirupur OBS / Palladam',
+    capacity: 57,
+    stops: [
+      { name: 'Tirupur OBS', fees: 54500, time: '7:00 AM', distanceOrder: 1 },
+      { name: 'Veerapandi Pirivu', fees: 54500, time: '7:10 AM', distanceOrder: 2 },
+      { name: 'Palladam Bus Stand', fees: 50500, time: '7:25 AM', distanceOrder: 3 },
+      { name: 'Lakshmi Mills (KN Puram)', fees: 50500, time: '7:35 AM', distanceOrder: 4 },
+      { name: 'Karanampettai', fees: 41000, time: '7:40 AM', distanceOrder: 5 },
+      { name: 'Defence Colony', fees: 36000, time: '7:42 AM', distanceOrder: 6 },
+      { name: 'Sulur', fees: 36000, time: '7:50 AM', distanceOrder: 7 },
+      { name: 'Pappampatti Pirivu', fees: 36000, time: '7:55 AM', distanceOrder: 8 }
+    ]
+  },
+  {
+    routeId: 'R7',
+    routeNumber: 'R7',
+    routeName: 'Pollachi',
+    capacity: 44,
+    stops: [
+      { name: 'Pollachi', fees: 57500, time: '6:55 AM', distanceOrder: 1 },
+      { name: 'Kovilpalayam', fees: 52500, time: '7:05 AM', distanceOrder: 2 },
+      { name: 'Thamaraikulam', fees: 50500, time: '7:15 AM', distanceOrder: 3 },
+      { name: 'Kinathukadavu', fees: 50500, time: '7:20 AM', distanceOrder: 4 },
+      { name: 'Othakkalmandapam', fees: 47500, time: '7:25 AM', distanceOrder: 5 },
+      { name: 'Malumichampatti', fees: 47500, time: '7:30 AM', distanceOrder: 6 },
+      { name: 'Karpagam University', fees: 47500, time: '7:35 AM', distanceOrder: 7 },
+      { name: 'Vellalore Pirivu (L&T Bypass)', fees: 40000, time: '7:45 AM', distanceOrder: 8 }
+    ]
+  },
+  {
+    routeId: 'R8',
+    routeNumber: 'R8',
+    routeName: 'Ganapathy',
+    capacity: 55,
+    stops: [
+      { name: 'Ganapathy', fees: 42000, time: '7:20 AM', distanceOrder: 1 },
+      { name: 'Athipalayam Pirivu', fees: 42000, time: '7:25 AM', distanceOrder: 2 },
+      { name: 'Bharathipuram', fees: 42000, time: '7:25 AM', distanceOrder: 3 },
+      { name: 'Cheran Maanagar', fees: 40000, time: '7:35 AM', distanceOrder: 4 },
+      { name: 'Thanneerpandal', fees: 40000, time: '7:50 AM', distanceOrder: 5 }
+    ]
+  },
+  {
+    routeId: 'R9',
+    routeNumber: 'R9',
+    routeName: 'Annur',
+    capacity: 55,
+    stops: [
+      { name: 'Annur', fees: 50000, time: '7:10 AM', distanceOrder: 1 },
+      { name: 'Kariyampalayam Pirivu', fees: 50000, time: '7:15 AM', distanceOrder: 2 },
+      { name: 'Ganesa Puram (Sakthi Road)', fees: 50000, time: '7:20 AM', distanceOrder: 3 },
+      { name: 'Kovilpalayam (Sakthi Road)', fees: 50000, time: '7:30 AM', distanceOrder: 4 },
+      { name: 'Kurumbapalayam (Sakthi Road)', fees: 48000, time: '7:35 AM', distanceOrder: 5 },
+      { name: 'Saravanampatti', fees: 48000, time: '7:40 AM', distanceOrder: 6 },
+      { name: 'Vilankurichi', fees: 40000, time: '7:45 AM', distanceOrder: 7 },
+      { name: 'Kalapatti', fees: 36000, time: '7:53 AM', distanceOrder: 8 },
+      { name: 'Nehru Nagar', fees: 36000, time: '7:58 AM', distanceOrder: 9 }
+    ]
+  },
+  {
+    routeId: 'R10',
+    routeNumber: 'R10',
+    routeName: 'Perur',
+    capacity: 55,
+    stops: [
+      { name: 'Perur', fees: 48000, time: '7:05 AM', distanceOrder: 1 },
+      { name: 'Telungupalayam Pirivu', fees: 48000, time: '7:10 AM', distanceOrder: 2 },
+      { name: 'Selvapuram', fees: 48000, time: '7:15 AM', distanceOrder: 3 },
+      { name: 'Townhall', fees: 40000, time: '7:25 AM', distanceOrder: 4 },
+      { name: 'Varatharajapuram', fees: 36000, time: '7:45 AM', distanceOrder: 5 },
+      { name: 'ESI & Lions', fees: 36000, time: '7:50 AM', distanceOrder: 6 },
+      { name: 'Ramanujanagar', fees: 36000, time: '7:51 AM', distanceOrder: 7 },
+      { name: "Mani's Theatre", fees: 36000, time: '7:58 AM', distanceOrder: 8 }
+    ]
+  },
+  {
+    routeId: 'R11',
+    routeNumber: 'R11',
+    routeName: 'Kanuvai',
+    capacity: 55,
+    stops: [
+      { name: 'Kanuvai', fees: 50000, time: '7:00 AM', distanceOrder: 1 },
+      { name: 'TVS Nagar', fees: 50000, time: '7:10 AM', distanceOrder: 2 },
+      { name: 'Edayarpalayam', fees: 50000, time: '7:15 AM', distanceOrder: 3 },
+      { name: 'Venkitapuram', fees: 50000, time: '7:20 AM', distanceOrder: 4 },
+      { name: 'Saibaba Colony', fees: 50000, time: '7:25 AM', distanceOrder: 5 },
+      { name: 'Saibaba Koil', fees: 50000, time: '7:30 AM', distanceOrder: 6 },
+      { name: 'Nava India', fees: 42000, time: '7:47 AM', distanceOrder: 7 }
+    ]
+  },
+  {
+    routeId: 'R12',
+    routeNumber: 'R12',
+    routeName: 'Avinashi (NEW)',
+    capacity: 44,
+    stops: [
+      { name: 'Avinashi NBS', fees: 42000, time: '7:30 AM', distanceOrder: 1 },
+      { name: 'Avinashi OBS', fees: 42000, time: '7:35 AM', distanceOrder: 2 },
+      { name: 'Thekkalur', fees: 42000, time: '7:40 AM', distanceOrder: 3 },
+      { name: 'Karumathampatti', fees: 31000, time: '7:55 AM', distanceOrder: 4 }
+    ]
+  },
+  {
+    routeId: 'R13',
+    routeNumber: 'R13',
+    routeName: 'Thudiyalur (NEW)',
+    capacity: 55,
+    stops: [
+      { name: 'Thudiyalur', fees: 50000, time: '7:15 AM', distanceOrder: 1 },
+      { name: 'Kavundampalayam', fees: 50000, time: '7:20 AM', distanceOrder: 2 },
+      { name: 'Krishna Silks - 100 ft Road', fees: 42000, time: '7:30 AM', distanceOrder: 3 }
+    ]
+  },
+  {
+    routeId: 'R14',
+    routeNumber: 'R14',
+    routeName: 'Podanur (NEW)',
+    capacity: 55,
+    stops: [
+      { name: 'Podanur', fees: 40000, time: '7:15 AM', distanceOrder: 1 },
+      { name: 'Nanjundapuram', fees: 40000, time: '7:20 AM', distanceOrder: 2 },
+      { name: 'Singanallur', fees: 36000, time: '7:40 AM', distanceOrder: 3 },
+      { name: 'Ondipudur', fees: 36000, time: '7:50 AM', distanceOrder: 4 },
+      { name: 'Irugur Pirivu', fees: 36000, time: '7:55 AM', distanceOrder: 5 }
+    ]
+  },
+  {
+    routeId: 'R15',
+    routeNumber: 'R15',
+    routeName: 'Gandhipuram',
+    capacity: 55,
+    stops: [
+      { name: 'Gandhipuram', fees: 42000, time: '7:25 AM', distanceOrder: 1 },
+      { name: 'Pap.N.Palayam', fees: 42000, time: '7:30 AM', distanceOrder: 2 },
+      { name: 'Lakshmi Mills (Avinashi Road)', fees: 42000, time: '7:35 AM', distanceOrder: 3 },
+      { name: 'Esso Bunk', fees: 38000, time: '7:40 AM', distanceOrder: 4 },
+      { name: 'Fun Mall', fees: 38000, time: '7:45 AM', distanceOrder: 5 },
+      { name: 'SITRA', fees: 36000, time: '7:55 AM', distanceOrder: 6 }
+    ]
+  }
+]
+
 export default function Registration() {
   const { userType } = useParams()
   const navigate = useNavigate()
@@ -144,7 +364,7 @@ export default function Registration() {
     return savedStep ? parseInt(savedStep) : 1
   })
   
-  const [routes, setRoutes] = useState([])
+  const [routes, setRoutes] = useState(HARDCODED_ROUTES)
   const [selectedRoute, setSelectedRoute] = useState('')
   const [selectedStop, setSelectedStop] = useState(null)
   const [searchStop, setSearchStop] = useState('')
@@ -166,6 +386,7 @@ export default function Registration() {
   const [finalReceiptFile, setFinalReceiptFile] = useState(null)
   const [finalReceiptNumber, setFinalReceiptNumber] = useState('')
   const [finalPaymentDate, setFinalPaymentDate] = useState('')
+  const [routesLoadError, setRoutesLoadError] = useState('')
 
   const [form, setForm] = useState({
     name: '', dateOfBirth: '', address: '', pincode: '',
@@ -204,9 +425,21 @@ export default function Registration() {
   }, [storageKey, userType])
 
   useEffect(() => {
+    if (USE_HARDCODED_BOARDING_POINTS) return
+
     axios.get('/api/register/boarding-points')
-      .then(res => setRoutes(res.data))
-      .catch(() => {})
+      .then(res => {
+        console.log('Loaded boarding points:', res.data);
+        setRoutes(res.data)
+        setRoutesLoadError('')
+      })
+      .catch(err => {
+        const message = err.response?.data?.message || err.message || 'Failed to load bus routes'
+        setRoutes([])
+        setRoutesLoadError(message)
+        setToast({ type: 'error', msg: `Could not load boarding points: ${message}` })
+        console.error('Failed to load boarding points', err)
+      })
   }, [])
 
   // Save step to sessionStorage whenever it changes
@@ -324,10 +557,17 @@ export default function Registration() {
   const handleSendOtp = async () => {
     setSubmitting(true)
     try {
-      await axios.post('/api/otp/send', { email: form.mailId })
-      setOtpSent(true)
-      setOtp('')
-      setToast({ type: 'success', msg: 'OTP sent to ' + form.mailId })
+      if (USE_HARDCODED_OTP_ROUTES) {
+        // Simulate OTP being sent during local debugging
+        setOtpSent(true)
+        setOtp('')
+        setToast({ type: 'success', msg: 'OTP (simulated) sent to ' + form.mailId })
+      } else {
+        await axios.post('/api/otp/send', { email: form.mailId })
+        setOtpSent(true)
+        setOtp('')
+        setToast({ type: 'success', msg: 'OTP sent to ' + form.mailId })
+      }
     } catch (err) {
       setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to send OTP' })
     } finally {
@@ -339,8 +579,13 @@ export default function Registration() {
     setOtp('')
     setSubmitting(true)
     try {
-      await axios.post('/api/otp/send', { email: form.mailId })
-      setToast({ type: 'success', msg: 'OTP resent to ' + form.mailId })
+      if (USE_HARDCODED_OTP_ROUTES) {
+        setToast({ type: 'success', msg: 'OTP (simulated) resent to ' + form.mailId })
+        setOtpSent(true)
+      } else {
+        await axios.post('/api/otp/send', { email: form.mailId })
+        setToast({ type: 'success', msg: 'OTP resent to ' + form.mailId })
+      }
     } catch (err) {
       setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to resend OTP' })
     } finally {
@@ -532,7 +777,7 @@ export default function Registration() {
       {isStudent && step === 2 && (
         <div className="reg-form slide-up">
           <div className="card" style={{ padding: '2rem' }}>
-            <div className="section-title">🔢 Enter Your Roll Number</div>
+            <div className="section-title">🔢 Enter Your Register Number</div>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
               Enter your 12-digit register number. The office must have recorded your advance payment before you can proceed.
             </p>
@@ -822,6 +1067,11 @@ export default function Registration() {
               borderRadius: '8px',
               backgroundColor: 'var(--bg-glass)'
             }}>
+              {routesLoadError && (
+                <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--accent-rose)' }}>
+                  {routesLoadError}
+                </div>
+              )}
               {routes.flatMap(route => 
                 route.stops
                   .filter(stop => stop.name.toLowerCase().includes(searchStop.toLowerCase()))

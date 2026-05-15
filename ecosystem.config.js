@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'proconnectBackend',
+      name: 'transport',
       script: './server/server.js',
       cwd: __dirname,
       instances: 1,

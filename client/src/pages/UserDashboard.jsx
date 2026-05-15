@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
+// OTPs should always go through the live API.
+const USE_HARDCODED_ROUTES = false
 
 export default function UserDashboard() {
   const [user, setUser] = useState(null)
@@ -52,9 +54,15 @@ export default function UserDashboard() {
 
     setSendingCancelOtp(true)
     try {
-      await axios.post('/api/otp/send', { email: user.mailId, purpose: 'cancellation' })
-      setCancelOtpSent(true)
-      setToast({ type: 'success', msg: `OTP sent to ${user.mailId}` })
+      if (USE_HARDCODED_ROUTES) {
+        // Simulate OTP send in local debug mode
+        setCancelOtpSent(true)
+        setToast({ type: 'success', msg: `OTP (simulated) sent to ${user.mailId}` })
+      } else {
+        await axios.post('/api/otp/send', { email: user.mailId, purpose: 'cancellation' })
+        setCancelOtpSent(true)
+        setToast({ type: 'success', msg: `OTP sent to ${user.mailId}` })
+      }
     } catch (err) {
       setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to send OTP' })
     } finally {
@@ -67,7 +75,9 @@ export default function UserDashboard() {
     if (!cancelReason.trim() || !cancelOtp.trim()) return
     setCanceling(true)
     try {
-      await axios.post('/api/otp/verify', { email: user.mailId, otp: cancelOtp.trim() })
+      if (!USE_HARDCODED_ROUTES) {
+        await axios.post('/api/otp/verify', { email: user.mailId, otp: cancelOtp.trim() })
+      }
       const res = await axios.post('/api/payment/cancel-request', {
         reason: cancelReason.trim(),
         registrationId: user.registrationId || user._id

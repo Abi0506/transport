@@ -6,11 +6,50 @@ const connectDB = require('./config/db');
 
 const app = express();
 
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+);
+
+[
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:4173',
+  'http://127.0.0.1:3000',
+  'https://sdc.psgitech.ac.in',
+  'https://sdc2.psgitech.ac.in',
+].forEach(origin => allowedOrigins.add(origin));
+
 // Connect to MongoDB
 connectDB();
 
 // Middleware
-app.use(cors());
+// Allow configured origins plus common local dev hosts for CORS.
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+
+    try {
+      const parsedOrigin = new URL(origin);
+      if (parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1') {
+        return callback(null, true);
+      }
+    } catch (_error) {
+      // Fall through to rejection below.
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -25,11 +64,22 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/otp', require('./routes/otp'));
-app.use('/api/register', require('./routes/registration'));
-app.use('/api/payment', require('./routes/payment'));
-app.use('/api/admin', require('./routes/admin'));
+const authRoutes = require('./routes/auth');
+const otpRoutes = require('./routes/otp');
+const registrationRoutes = require('./routes/registration');
+const paymentRoutes = require('./routes/payment');
+const adminRoutes = require('./routes/admin');
+
+[
+  '/api',
+  '/transport/api',
+].forEach(basePath => {
+  app.use(`${basePath}/auth`, authRoutes);
+  app.use(`${basePath}/otp`, otpRoutes);
+  app.use(`${basePath}/register`, registrationRoutes);
+  app.use(`${basePath}/payment`, paymentRoutes);
+  app.use(`${basePath}/admin`, adminRoutes);
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -37,19 +87,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Serve client static build (if present) and provide SPA fallback
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
-if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-  // Also serve when mounted under /transport (reverse-proxy or subpath deployments)
-  app.use('/transport', express.static(clientDist));
-  app.get('/transport/*', (req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
-  app.get('*', (req, res) => {
-    if (req.path.startsWith('/api/')) return res.status(404).json({ message: 'Not Found' });
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
-}
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
