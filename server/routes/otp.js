@@ -10,12 +10,13 @@ router.post('/send', async (req, res) => {
     const { email, purpose } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
+    const normalizedEmail = email.toLowerCase().trim();
     const normalizedPurpose = purpose === 'cancellation' ? 'cancellation' : 'registration';
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStore.set(email, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10 minutes expiry
+    otpStore.set(normalizedEmail, { otp, expires: Date.now() + 10 * 60 * 1000 }); // 10 minutes expiry
 
-    await sendMail(email, `Your Transport ${normalizedPurpose === 'cancellation' ? 'Cancellation' : 'Registration'} OTP`, `
+    await sendMail(normalizedEmail, `Your Transport ${normalizedPurpose === 'cancellation' ? 'Cancellation' : 'Registration'} OTP`, `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
         <h2>Transport ${normalizedPurpose === 'cancellation' ? 'Cancellation' : 'Registration'} Verification</h2>
         <p>Your OTP for ${normalizedPurpose} is:</p>
@@ -33,23 +34,30 @@ router.post('/send', async (req, res) => {
 
 router.post('/verify', (req, res) => {
   const { email, otp } = req.body;
-  const stored = otpStore.get(email);
+  
+  if (!email || !otp) {
+    return res.status(400).json({ message: 'Email and OTP are required' });
+  }
+  
+  const normalizedEmail = email.toLowerCase().trim();
+  const normalizedOtp = (otp || '').toString().trim();
+  const stored = otpStore.get(normalizedEmail);
 
   if (!stored) {
     return res.status(400).json({ message: 'OTP not found or expired' });
   }
 
   if (Date.now() > stored.expires) {
-    otpStore.delete(email);
+    otpStore.delete(normalizedEmail);
     return res.status(400).json({ message: 'OTP expired' });
   }
 
-  if (stored.otp !== otp) {
+  if (stored.otp !== normalizedOtp) {
     return res.status(400).json({ message: 'Invalid OTP' });
   }
 
   // OTP is valid
-  otpStore.delete(email);
+  otpStore.delete(normalizedEmail);
   res.json({ message: 'OTP verified successfully' });
 });
 

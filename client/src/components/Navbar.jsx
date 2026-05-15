@@ -15,12 +15,7 @@ export default function Navbar() {
   return (
     <nav className="navbar" style={{ borderBottom: '1px solid var(--border-color)', height: '64px' }}>
       <Link to="/" className="navbar-brand">
-        <img
-          src="/3TL_Logo.jpg"
-          alt="3TL Logo"
-          style={{ height: '32px', objectFit: 'contain' }}
-          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/transport/3TL_Logo.jpg'; }}
-        />
+        <img src="https://i.ibb.co/dwmwTKrm/3-TL-Logo-with-white.jpg" alt="3TL Logo" style={{ height: '32px', objectFit: 'contain' }} />
         <div style={{ paddingLeft: '10px' }}>
           <div className="logo" style={{ color: 'var(--text-primary)', fontSize: '1.25rem', fontWeight: '700' }}>Transport Portal</div>
         </div>
