@@ -4,25 +4,45 @@ import axios from 'axios'
 import GuidelinesStep from '../components/GuidelinesStep'
 import InstructionsStep from '../components/InstructionsStep'
 
-const DEPARTMENTS = [
-  // B.E Programs
-  'B.E. Civil Engineering',
-  'B.E. Computer Science and Engineering',
-  'B.E. Electrical and Electronics Engineering',
-  'B.E. Electronics and Communication Engineering',
-  'B.E. Instrumentation and Control Engineering',
-  'B.E. Mechanical Engineering',
+const STUDENT_DEPARTMENTS = [
+  'B.E Civil',
+  'B.E CSE',
+  'B.E EEE',
+  'B.E ECE',
+  'B.E Mech',
+  'B.E ICE',
+  'B.Tech AIDS',
+  'B.Tech VLSI',
+  'B.Tech CSBS',
+  'B.E ROAI',
+  'B.Des',
+  'B.Arch',
+  'M.E Structural',
+  'M.E Design',
+  'M.E CSE'
+]
 
-  // B.Tech Programs
-  'B.Tech. Artificial Intelligence and Data Science',
-  'B.Tech. Electronics Engineering (VLSI Design and Technology)',
-
-  // M.E Programs
-  'M.E. Structural Engineering',
-  'M.E. Engineering Design',
-
-  // B.Arch
-  'B.Arch. Bachelor of Architecture'
+const FACULTY_DEPARTMENTS = [
+  'Civil',
+  'CSE',
+  'EEE',
+  'ECE',
+  'Mech',
+  'ICE',
+  'AIDS',
+  'VLSI',
+  'CSBS',
+  'ROAI',
+  'Engineering Design',
+  'B.Des',
+  'Arch',
+  'Structural',
+  'Chemistry',
+  'Physics',
+  'Maths',
+  'English',
+  'Office',
+ 
 ]
 
 export default function Registration() {
@@ -566,7 +586,7 @@ export default function Registration() {
                 <label>Department *</label>
                 <select className="form-control" name="department" value={form.department} onChange={handleChange}>
                   <option value="">Select Department</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {(type === 'Faculty' ? FACULTY_DEPARTMENTS : STUDENT_DEPARTMENTS).map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
               <div className="form-group">
