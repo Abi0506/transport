@@ -61,6 +61,20 @@ const DESIGNATIONS = [
   'Vigilance Officer', 'Visting Professor', 'Web-Designer'
 ]
 
+// Explicit faculty-only designations requested by the user
+const FACULTY_DESIGNATIONS = [
+  'Assistant Professor',
+  'Assistant Professor (SL Gr)',
+  'Assistant Professor (Senior Grade)',
+  'Associate Professor',
+  'Adjunct Faculty',
+  'Professor',
+  'Professor of Practice'
+]
+
+// Remaining items are staff designations
+const STAFF_DESIGNATIONS = DESIGNATIONS.filter(d => !FACULTY_DESIGNATIONS.includes(d))
+
 export default function Registration() {
   const { userType } = useParams()
   const navigate = useNavigate()
@@ -355,7 +369,7 @@ export default function Registration() {
       if (step === 2) return instructionsAccepted
       if (step === 3) {
         if (!form.mailId || !form.mailId.endsWith(expectedDomain)) return false
-        if (form.designation && !DESIGNATIONS.includes(form.designation)) return false
+        if (form.designation && !(form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS.includes(form.designation) : STAFF_DESIGNATIONS.includes(form.designation))) return false
         const base = form.name && form.dateOfBirth && form.address && form.pincode &&
           form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department && form.designation
         return base && form.employeeId
@@ -573,14 +587,14 @@ export default function Registration() {
                     style={form.designation && !DESIGNATIONS.includes(form.designation) ? { borderColor: 'var(--accent-rose)' } : {}}
                   />
                   <datalist id="designation-list">
-                    {DESIGNATIONS.map(d => <option key={d} value={d} />)}
+                    {(form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS : STAFF_DESIGNATIONS).map(d => <option key={d} value={d} />)}
                   </datalist>
-                  {form.designation && !DESIGNATIONS.includes(form.designation) && (
+                  {form.designation && !(form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS.includes(form.designation) : STAFF_DESIGNATIONS.includes(form.designation)) && (
                     <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
                       ❌ Please select a designation from the list
                     </small>
                   )}
-                  {form.designation && DESIGNATIONS.includes(form.designation) && (
+                  {form.designation && (form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS.includes(form.designation) : STAFF_DESIGNATIONS.includes(form.designation)) && (
                     <small style={{ color: 'var(--accent-emerald)', marginTop: '0.25rem', display: 'block' }}>
                       ✓ Designation verified
                     </small>
