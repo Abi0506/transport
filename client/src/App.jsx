@@ -12,7 +12,7 @@ import RoutesViewer from './pages/RoutesViewer'
 
 function App() {
   return (
-    <Router>
+    <Router basename="/transport">
       <div className="app-container">
         <Navbar />
         <main className="main-content">

@@ -36,6 +36,21 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Serve client static build (if present) and provide SPA fallback
+const clientDist = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  // Also serve when mounted under /transport (reverse-proxy or subpath deployments)
+  app.use('/transport', express.static(clientDist));
+  app.get('/transport/*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) return res.status(404).json({ message: 'Not Found' });
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -45,7 +60,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 2886;
 app.listen(PORT, () => {
   console.log(`\n🚌 Transport Server running on port ${PORT}`);
   console.log(`   API: http://localhost:${PORT}/api`);

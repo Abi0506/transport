@@ -369,7 +369,7 @@ export default function AdminDashboard() {
                   <td style={{ maxWidth: '300px' }}>{c.cancellationReason}</td>
                   <td>
                     {c.cancellationLetter ? (
-                      <a href={`http://localhost:5000/${c.cancellationLetter.split('\\').pop().split('/').pop()}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-blue)', textDecoration: 'underline' }}>View PDF</a>
+                      <a href={`http://localhost:2886/${c.cancellationLetter.split('\\').pop().split('/').pop()}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-blue)', textDecoration: 'underline' }}>View PDF</a>
                     ) : 'None'}
                   </td>
                   <td>
@@ -718,10 +718,10 @@ export default function AdminDashboard() {
                       }}>{reg.registrationStatus}</span></td>
                       <td style={{ fontSize: '0.8rem' }}>
                         <div style={{ marginBottom: '4px' }}>
-                          {reg.receiptFile ? <a href={`http://localhost:5000/${reg.receiptFile.split('\\').pop().split('/').pop()}`} target="_blank" rel="noreferrer" style={{color:'var(--accent-blue)', textDecoration: 'underline'}}>Adv</a> : <span style={{color:'var(--text-muted)'}}>No Adv</span>}
+                          {reg.receiptFile ? <a href={`http://localhost:2886/${reg.receiptFile.split('\\').pop().split('/').pop()}`} target="_blank" rel="noreferrer" style={{color:'var(--accent-blue)', textDecoration: 'underline'}}>Adv</a> : <span style={{color:'var(--text-muted)'}}>No Adv</span>}
                         </div>
                         <div>
-                          {reg.finalReceiptFile ? <a href={`http://localhost:5000/${reg.finalReceiptFile.split('\\').pop().split('/').pop()}`} target="_blank" rel="noreferrer" style={{color:'var(--accent-emerald)', textDecoration: 'underline'}}>Final</a> : <span style={{color:'var(--text-muted)'}}>No Final</span>}
+                          {reg.finalReceiptFile ? <a href={`http://localhost:2886/${reg.finalReceiptFile.split('\\').pop().split('/').pop()}`} target="_blank" rel="noreferrer" style={{color:'var(--accent-emerald)', textDecoration: 'underline'}}>Final</a> : <span style={{color:'var(--text-muted)'}}>No Final</span>}
                         </div>
                       </td>
                       <td>
