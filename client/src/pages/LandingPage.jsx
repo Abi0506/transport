@@ -5,7 +5,7 @@ export default function LandingPage() {
     <div className="fade-in">
       <section className="hero" style={{ background: 'var(--bg-secondary)', padding: '6rem 2rem 5rem', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.5rem', marginBottom: '1rem' }}>
-          <img src="/3TL_Logo.jpg" alt="3TL Logo" className="hide-mobile" style={{ height: '80px', objectFit: 'contain' }} />
+          <img src="https://i.ibb.co/dwmwTKrm/3-TL-Logo-with-white.jpg" alt="3TL Logo" className="hide-mobile" style={{ height: '80px', objectFit: 'contain' }} />
           <h1 style={{ color: 'var(--text-primary)', fontSize: '3.5rem', fontWeight: '800', letterSpacing: '-0.03em', margin: 0 }}>Transport <span style={{ color: 'var(--accent-blue)' }}>Portal</span></h1>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '1.25rem', marginBottom: '2.5rem' }}>Secure your seat for the academic year 2026–27.</p>
