@@ -708,7 +708,7 @@ export default function Registration() {
                       alignItems: 'center'
                     }}>
                       <span style={{ fontWeight: 600, minWidth: '80px' }}>₹ {stop.fees}</span>
-                      <span style={{ fontWeight: 600, minWidth: '60px' }}>⏰ {stop.time}</span>
+                      <span style={{ fontWeight: 600, minWidth: '60px' }}>{stop.time}</span>
                     </span>
                   </div>
                 ))
@@ -735,7 +735,7 @@ export default function Registration() {
                   ✓ Selected Boarding Point
                 </div>
                 <div style={{ fontWeight: 600, fontSize: '1.1rem', color: 'var(--accent-emerald)' }}>
-                  {selectedStop.name} — ⏰ {selectedStop.time}
+                  {selectedStop.name} — {selectedStop.time}
                 </div>
                 <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
                   Annual Fee: ₹{getFinalFee().toLocaleString()}
