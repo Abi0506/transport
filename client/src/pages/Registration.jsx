@@ -42,7 +42,23 @@ const FACULTY_DEPARTMENTS = [
   'Maths',
   'English',
   'Office',
- 
+]
+
+const DESIGNATIONS = [
+  'Adjunct Faculty', 'Assistant', 'Assistant Librarian', 'Assistant Professor', 
+  'Assistant Professor (Sel Gr)', 'Assistant Professor (Senior Grade)', 
+  'Assistant Security Officer', 'Associate Professor', 'Asst Manager-Corporate Relations and Placement', 
+  'Asst Physical Director', 'Attendant', 'Coordinator', 'Counsellor', 'Director-Examinations', 
+  'Electrical Supervisor', 'Electrician', 'Engineer', 'Facility Executive', 'Foreman Instructor', 
+  'Head - Convention Services', 'HR', 'Instructor', 'IT Support Engineer', 'Jr Maint Assist (Electrical)', 
+  'Jr Maint Engineer', 'Junior Assistant', 'Junior Maintenance Assistant', 'Lab Assistant', 'Librarian', 
+  'Maintenance Engineer', 'Maintenance Supervisor', 'Office Superintendent', 'Physical Director', 
+  'Principal', 'Professor', 'Professor of Practice', 'Project Engineer', 'Research Assistant', 
+  'Research Associate', 'Secretary', 'Security', 'Security Officer', 'Senior Assistant', 
+  'Senior Executive - Sales & Marketing', 'Senior Lab Technician', 'Senior Mechanic', 'Staff Nurse', 
+  'Store Keeper', 'System Administrator', 'Teaching Assistant', 'Technical Assistant', 
+  'Technical Assistant (Systems)', 'Technical Operator', 'Technician', 'Transport Officer', 
+  'Vigilance Officer', 'Visting Professor', 'Web-Designer'
 ]
 
 export default function Registration() {
@@ -314,6 +330,8 @@ export default function Registration() {
   }
 
   const canNext = () => {
+    const expectedDomain = form.institution === 'PSG IAP' ? '@psgiap.ac.in' : '@psgitech.ac.in'
+    
     if (isStudent) {
       if (step === 1) return !!yearCategory
       if (step === 2) return rollNumberVerified
@@ -323,7 +341,7 @@ export default function Registration() {
         const base = form.name && form.dateOfBirth && form.address && form.pincode &&
           form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
         if (form.registerNumber.length !== 12 || !form.registerNumber.startsWith('7155')) return false
-        if (!form.mailId.endsWith('@psgitech.ac.in')) return false
+        if (!form.mailId.endsWith(expectedDomain)) return false
         const validation = validateRegisterNumber(form.registerNumber)
         return base && validation.valid && form.gender && form.academicYear
       }
@@ -336,9 +354,10 @@ export default function Registration() {
       if (step === 1) return guidelinesAccepted
       if (step === 2) return instructionsAccepted
       if (step === 3) {
-        if (!form.mailId || !form.mailId.endsWith('@psgitech.ac.in')) return false
+        if (!form.mailId || !form.mailId.endsWith(expectedDomain)) return false
+        if (form.designation && !DESIGNATIONS.includes(form.designation)) return false
         const base = form.name && form.dateOfBirth && form.address && form.pincode &&
-          form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
+          form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department && form.designation
         return base && form.employeeId
       }
       if (step === 4) return selectedStop !== null
@@ -541,6 +560,34 @@ export default function Registration() {
                   </small>
                 )}
               </div>
+              {isEmployee && (
+                <div className="form-group">
+                  <label>Designation *</label>
+                  <input
+                    className="form-control"
+                    name="designation"
+                    list="designation-list"
+                    value={form.designation}
+                    onChange={handleChange}
+                    placeholder="Search designation..."
+                    style={form.designation && !DESIGNATIONS.includes(form.designation) ? { borderColor: 'var(--accent-rose)' } : {}}
+                  />
+                  <datalist id="designation-list">
+                    {DESIGNATIONS.map(d => <option key={d} value={d} />)}
+                  </datalist>
+                  {form.designation && !DESIGNATIONS.includes(form.designation) && (
+                    <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
+                      ❌ Please select a designation from the list
+                    </small>
+                  )}
+                  {form.designation && DESIGNATIONS.includes(form.designation) && (
+                    <small style={{ color: 'var(--accent-emerald)', marginTop: '0.25rem', display: 'block' }}>
+                      ✓ Designation verified
+                    </small>
+                  )}
+                </div>
+              )}
+              
               <div className="form-group">
                 <label>Full Name *</label>
                 <input className="form-control" name="name" value={form.name} onChange={handleChange} />
@@ -586,7 +633,7 @@ export default function Registration() {
                 <label>Department *</label>
                 <select className="form-control" name="department" value={form.department} onChange={handleChange}>
                   <option value="">Select Department</option>
-                  {(type === 'Faculty' ? FACULTY_DEPARTMENTS : STUDENT_DEPARTMENTS).map(d => <option key={d} value={d}>{d}</option>)}
+                  {(isStudent ? STUDENT_DEPARTMENTS : FACULTY_DEPARTMENTS).map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
               <div className="form-group">
@@ -614,14 +661,14 @@ export default function Registration() {
                   name="mailId" 
                   value={form.mailId} 
                   onChange={handleChange}
-                  style={form.mailId && !form.mailId.endsWith('@psgitech.ac.in') ? { borderColor: 'var(--accent-rose)' } : {}}
+                  style={form.mailId && !form.mailId.endsWith(form.institution === 'PSG IAP' ? '@psgiap.ac.in' : '@psgitech.ac.in') ? { borderColor: 'var(--accent-rose)' } : {}}
                 />
-                {form.mailId && !form.mailId.endsWith('@psgitech.ac.in') && (
+                {form.mailId && !form.mailId.endsWith(form.institution === 'PSG IAP' ? '@psgiap.ac.in' : '@psgitech.ac.in') && (
                   <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
-                    ❌ Email must be from psgitech.ac.in domain
+                    ❌ Email must be from {form.institution === 'PSG IAP' ? 'psgiap.ac.in' : 'psgitech.ac.in'} domain
                   </small>
                 )}
-                {form.mailId && form.mailId.endsWith('@psgitech.ac.in') && (
+                {form.mailId && form.mailId.endsWith(form.institution === 'PSG IAP' ? '@psgiap.ac.in' : '@psgitech.ac.in') && (
                   <small style={{ color: 'var(--accent-emerald)', marginTop: '0.25rem', display: 'block' }}>
                     ✓ Email domain verified
                   </small>
@@ -882,6 +929,7 @@ export default function Registration() {
                   ['DOB', form.dateOfBirth],
                   isStudent ? ['Year', `${form.academicYear}${['st','nd','rd','th','th'][form.academicYear-1]} Year`] : null,
                   isStudent ? ['Gender', form.gender] : null,
+                  isEmployee ? ['Designation', form.designation] : null,
                   ['Department', form.department],
                   ['Institution', form.institution],
                   ['Address', form.address],
@@ -916,8 +964,8 @@ export default function Registration() {
             <h2 style={{ marginBottom: '0.5rem' }}>Registration Successful!</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>{result.message}</p>
             <div style={{ background: 'var(--bg-glass)', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem', display: 'inline-block' }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Registration ID</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'monospace' }}>{result.registrationId}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{isStudent ? 'Registration ID' : 'Staff ID'}</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'monospace' }}>{isStudent ? result.registrationId : result.employeeId}</div>
             </div>
             {result.phase && (
               <p style={{ color: 'var(--accent-amber)', fontSize: '0.9rem' }}>Phase {result.phase} allocation</p>

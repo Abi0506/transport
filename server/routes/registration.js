@@ -32,10 +32,12 @@ const uploadMultiple = upload.fields([
   { name: 'fullPaymentReceipt', maxCount: 1 }
 ]);
 
-const sendRegistrationConfirmation = async ({ mailId, name, stopName }) => {
+const sendRegistrationConfirmation = async ({ mailId, name, stopName, userType, employeeId }) => {
   if (!mailId) return;
 
   const subject = 'Transport Registration Confirmation - AY 2026-27';
+  const isFacultyOrStaff = userType === 'faculty' || userType === 'staff';
+  
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
       <div style="background: #2f5ea8; color: #fff; padding: 16px; text-align: center; font-size: 24px; font-weight: 700;">
@@ -44,12 +46,13 @@ const sendRegistrationConfirmation = async ({ mailId, name, stopName }) => {
       <div style="padding: 24px; color: #222; line-height: 1.7;">
         <p>Dear ${name},</p>
         <p>Thank you for registering in the Transport App of PSGiTech for availing college bus during AY 2026-27.</p>
-        <p><strong>Your login credentials are:</strong></p>
+        ${isFacultyOrStaff ? `<p><strong>Your Staff ID:</strong> ${employeeId}</p>` : ''}
+        ${!isFacultyOrStaff ? `<p><strong>Your login credentials are:</strong></p>
         <p style="margin-left: 16px;">
           User name: Register Number / D.No.<br />
           Password: Date of Birth (yyyymmdd)
         </p>
-        <p><strong>Advance Payment:</strong> ₹5,000 must be paid in advance (cash at office). This amount is refundable as per transport rules.</p>
+        <p><strong>Advance Payment:</strong> ₹5,000 must be paid in advance (cash at office). This amount is refundable as per transport rules.</p>` : ''}
         <p>Allocation will be done based on your boarding point and the distance matrix.</p>
         <p>If you are allotted a seat, you will receive an allocation mail regarding bus fees, payment date, bus route number, and other procedures.</p>
         <p><strong>Important:</strong> Please refer to the Transport Guidelines for detailed information.</p>
@@ -183,7 +186,7 @@ router.post('/student', uploadMultiple, async (req, res) => {
     const registration = draft || new Registration(registrationPayload);
     Object.assign(registration, registrationPayload);
     await registration.save();
-    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint });
+    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint, userType: 'student' });
     res.status(201).json({
       message: 'Registration successful!',
       registrationId: registration._id,
@@ -262,10 +265,11 @@ router.post('/faculty', uploadMultiple, async (req, res) => {
     });
 
     await registration.save();
-    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint });
+    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint, userType: 'faculty', employeeId: registration.employeeId });
     res.status(201).json({
       message: 'Faculty registration successful!',
       registrationId: registration._id,
+      employeeId: registration.employeeId,
       phase: registration.phase,
       finalFees: registration.finalFees,
       concession: '50%'
@@ -338,10 +342,11 @@ router.post('/staff', uploadMultiple, async (req, res) => {
     });
 
     await registration.save();
-    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint });
+    await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint, userType: 'staff', employeeId: registration.employeeId });
     res.status(201).json({
       message: 'Staff registration successful!',
       registrationId: registration._id,
+      employeeId: registration.employeeId,
       phase: registration.phase,
       finalFees: registration.finalFees,
       concession: '25%'

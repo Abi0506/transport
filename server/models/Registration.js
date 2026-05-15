@@ -15,25 +15,7 @@ const registrationSchema = new mongoose.Schema({
   emergencyPhoneNumber: { type: String, required: true },  mailId: { type: String, required: true },
   department: {
     type: String,
-    required: true,
-    enum: [
-      // B.E Programs
-      'B.E. Civil Engineering',
-      'B.E. Computer Science and Engineering',
-      'B.E. Electrical and Electronics Engineering',
-      'B.E. Electronics and Communication Engineering',
-      'B.E. Instrumentation and Control Engineering',
-      'B.E. Mechanical Engineering',
-      'B.E. Robotics and Artificial Intelligence',
-      // B.Tech Programs
-      'B.Tech. Artificial Intelligence and Data Science',
-      'B.Tech. Electronics Engineering (VLSI Design and Technology)',
-      // M.E Programs
-      'M.E. Structural Engineering',
-      'M.E. Engineering Design',
-      // B.Arch
-      'B.Arch. Bachelor of Architecture'
-    ]
+    required: true
   },
   institution: { type: String, required: true, enum: ['PSG iTech', 'PSG IAP'] },
   boardingPoint: { type: String, required: true },
@@ -49,6 +31,7 @@ const registrationSchema = new mongoose.Schema({
 
   // Faculty/Staff-specific fields
   employeeId: { type: String },
+  designation: { type: String },
   isBlocked: { type: Boolean, default: false },
 
   // Calculated fields
