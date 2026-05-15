@@ -213,15 +213,19 @@ router.post('/faculty', uploadMultiple, async (req, res) => {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
     }
 
+    if (!mailId.endsWith('@psgitech.ac.in')) {
+      return res.status(400).json({ message: 'Faculty email must be from psgitech.ac.in domain' });
+    }
+
     const existing = await Registration.findOne({ employeeId, userType: 'faculty' });
     if (existing) {
       return res.status(400).json({ message: 'Faculty with this employee ID already registered' });
     }
 
     // Check email uniqueness
-    const emailExists = await Registration.findOne({ mailId });
+    const emailExists = await Registration.findOne({ mailId, userType: 'faculty' });
     if (emailExists) {
-      return res.status(400).json({ message: 'This email is already used in another registration' });
+      return res.status(400).json({ message: 'This email is already used in a faculty registration' });
     }
 
     const route = await Route.findOne({ 'stops.name': boardingPoint });

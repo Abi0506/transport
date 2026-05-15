@@ -316,6 +316,7 @@ export default function Registration() {
       if (step === 1) return guidelinesAccepted
       if (step === 2) return instructionsAccepted
       if (step === 3) {
+        if (!form.mailId || !form.mailId.endsWith('@psgitech.ac.in')) return false
         const base = form.name && form.dateOfBirth && form.address && form.pincode &&
           form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
         return base && form.employeeId
@@ -593,14 +594,14 @@ export default function Registration() {
                   name="mailId" 
                   value={form.mailId} 
                   onChange={handleChange}
-                  style={isStudent && form.mailId && !form.mailId.endsWith('@psgitech.ac.in') ? { borderColor: 'var(--accent-rose)' } : {}}
+                  style={form.mailId && !form.mailId.endsWith('@psgitech.ac.in') ? { borderColor: 'var(--accent-rose)' } : {}}
                 />
-                {isStudent && form.mailId && !form.mailId.endsWith('@psgitech.ac.in') && (
+                {form.mailId && !form.mailId.endsWith('@psgitech.ac.in') && (
                   <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
                     ❌ Email must be from psgitech.ac.in domain
                   </small>
                 )}
-                {isStudent && form.mailId && form.mailId.endsWith('@psgitech.ac.in') && (
+                {form.mailId && form.mailId.endsWith('@psgitech.ac.in') && (
                   <small style={{ color: 'var(--accent-emerald)', marginTop: '0.25rem', display: 'block' }}>
                     ✓ Email domain verified
                   </small>
