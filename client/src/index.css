@@ -16,7 +16,8 @@
   --accent-secondary: #333333;
   
   --accent-blue: #0070f3;
-  --accent-emerald: #0070f3;
+  --accent-emerald: #10b981;
+  --accent-rose: #f43f5e;
   --accent-amber: #f5a623;
   --accent-danger: #ee0000;
   --accent-purple: #0070f3;
@@ -215,8 +216,8 @@ body {
 }
 
 .btn-secondary { 
-  background: var(--bg-secondary); 
-  color: var(--text-primary); 
+  background: #333333; 
+  color: white;
   border: 1px solid var(--border-color);
 }
 
@@ -278,7 +279,7 @@ body {
 }
 
 .form-control::placeholder {
-  color: var(--text-light);
+  color: #000000;
 }
 
 select.form-control { 

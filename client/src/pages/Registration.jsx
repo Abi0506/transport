@@ -5,69 +5,127 @@ import GuidelinesStep from '../components/GuidelinesStep'
 import InstructionsStep from '../components/InstructionsStep'
 
 const STUDENT_DEPARTMENTS = [
-  'B.E Civil',
-  'B.E CSE',
-  'B.E EEE',
-  'B.E ECE',
-  'B.E Mech',
-  'B.E ICE',
-  'B.Tech AIDS',
-  'B.Tech VLSI',
-  'B.Tech CSBS',
-  'B.E ROAI',
-  'B.Des',
   'B.Arch',
-  'M.E Structural',
+  'B.Des',
+  'B.E CSE',
+  'B.E Civil',
+  'B.E ECE',
+  'B.E EEE',
+  'B.E ICE',
+  'B.E Mech',
+  'B.E ROAI',
+  'B.Tech AIDS',
+  'B.Tech CSBS',
+  'B.Tech VLSI',
+  'M.E CSE',
   'M.E Design',
-  'M.E CSE'
+  'M.E Structural'
 ]
 
 const FACULTY_DEPARTMENTS = [
-  'Civil',
-  'CSE',
-  'EEE',
-  'ECE',
-  'Mech',
-  'ICE',
   'AIDS',
-  'VLSI',
-  'CSBS',
-  'ROAI',
-  'Engineering Design',
-  'B.Des',
   'Arch',
-  'Structural',
-  'Chemistry',
-  'Physics',
-  'Maths',
+  'B.Des',
+  'CC',
+  'CDC',
+  'CMC',
+  'CSBS',
+  'CSE',
+  'Civil',
+  'Convention',
+  'ECE',
+  'EEE',
   'English',
+  'Engineering Design',
+  'Exam cell',
+  'Hostel',
+  'IQAC',
+  'Library',
+  'Maintenance',
+  'Maths',
+  'Museum',
   'Office',
+  'Office of Academic',
+  'PE',
+  'Power',
+  'Physics',
+  'ROAI',
+  'Stores',
+  'Structural',
+  'TQM',
+  'Transport',
+  'VLSI',
+  'Wellness Centre'
 ]
 
 const DESIGNATIONS = [
-  'Adjunct Faculty', 'Assistant', 'Assistant Librarian', 'Assistant Professor', 
-  'Assistant Professor (Sel Gr)', 'Assistant Professor (Senior Grade)', 
-  'Assistant Security Officer', 'Associate Professor', 'Asst Manager-Corporate Relations and Placement', 
-  'Asst Physical Director', 'Attendant', 'Coordinator', 'Counsellor', 'Director-Examinations', 
-  'Electrical Supervisor', 'Electrician', 'Engineer', 'Facility Executive', 'Foreman Instructor', 
-  'Head - Convention Services', 'HR', 'Instructor', 'IT Support Engineer', 'Jr Maint Assist (Electrical)', 
-  'Jr Maint Engineer', 'Junior Assistant', 'Junior Maintenance Assistant', 'Lab Assistant', 'Librarian', 
-  'Maintenance Engineer', 'Maintenance Supervisor', 'Office Superintendent', 'Physical Director', 
-  'Principal', 'Professor', 'Professor of Practice', 'Project Engineer', 'Research Assistant', 
-  'Research Associate', 'Secretary', 'Security', 'Security Officer', 'Senior Assistant', 
-  'Senior Executive - Sales & Marketing', 'Senior Lab Technician', 'Senior Mechanic', 'Staff Nurse', 
-  'Store Keeper', 'System Administrator', 'Teaching Assistant', 'Technical Assistant', 
-  'Technical Assistant (Systems)', 'Technical Operator', 'Technician', 'Transport Officer', 
-  'Vigilance Officer', 'Visting Professor', 'Web-Designer'
+  'Adjunct Faculty',
+  'Asst Manager-Corporate Relations and Placement',
+  'Asst Physical Director',
+  'Assistant',
+  'Assistant Librarian',
+  'Assistant Professor',
+  'Assistant Professor (Sel Gr)',
+  'Assistant Professor (Senior Grade)',
+  'Assistant Security Officer',
+  'Associate Professor',
+  'Attendant',
+  'Coordinator',
+  'Counsellor',
+  'Director-Examinations',
+  'Electrical Supervisor',
+  'Electrician',
+  'Engineer',
+  'Facility Executive',
+  'Foreman Instructor',
+  'Head - Convention Services',
+  'HR',
+  'IT Support Engineer',
+  'Instructor',
+  'Jr Maint Assist (Electrical)',
+  'Jr Maint Engineer',
+  'Junior Assistant',
+  'Junior Maintenance Assistant',
+  'Lab Assistant',
+  'Librarian',
+  'Maintenance Engineer',
+  'Maintenance Supervisor',
+  'Office Superintendent',
+  'Physical Director',
+  'Principal',
+  'Professor',
+  'Professor of Practice',
+  'Project Engineer',
+  'Research Assistant',
+  'Research Associate',
+  'Secretary',
+  'Security',
+  'Security Officer',
+  'Senior Assistant',
+  'Senior Executive - Sales & Marketing',
+  'Senior Lab Technician',
+  'Senior Mechanic',
+  'Staff Nurse',
+  'Store Keeper',
+  'System Administrator',
+  'Teaching Assistant',
+  'Technical Assistant',
+  'Technical Assistant (Systems)',
+  'Technical Operator',
+  'Technician',
+  'Transport Officer',
+  'Vigilance Officer',
+  'Visting Professor',
+  'Web-Designer'
 ]
 
 // Explicit faculty-only designations requested by the user
 const FACULTY_DESIGNATIONS = [
+  'Adjunct Faculty',
   'Assistant Professor',
-  'Assistant Professor (SL Gr)',
+  'Assistant Professor (Sel Gr)',
   'Assistant Professor (Senior Grade)',
   'Associate Professor',
-  'Adjunct Faculty',
   'Professor',
   'Professor of Practice'
 ]
@@ -268,9 +326,23 @@ export default function Registration() {
     try {
       await axios.post('/api/otp/send', { email: form.mailId })
       setOtpSent(true)
+      setOtp('')
       setToast({ type: 'success', msg: 'OTP sent to ' + form.mailId })
     } catch (err) {
       setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to send OTP' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleResendOtp = async () => {
+    setOtp('')
+    setSubmitting(true)
+    try {
+      await axios.post('/api/otp/send', { email: form.mailId })
+      setToast({ type: 'success', msg: 'OTP resent to ' + form.mailId })
+    } catch (err) {
+      setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to resend OTP' })
     } finally {
       setSubmitting(false)
     }
@@ -1012,12 +1084,44 @@ export default function Registration() {
           </div>
           
           {(isStudent ? step === 8 : step === 5) && otpSent && (
-            <div style={{ background: 'var(--bg-glass)', padding: '1.5rem', borderRadius: '12px', width: '100%', maxWidth: '300px', textAlign: 'center' }}>
+            <div style={{ background: 'var(--bg-glass)', padding: '1.5rem', borderRadius: '12px', width: '100%', maxWidth: '420px', textAlign: 'center' }}>
               <p style={{ fontSize: '0.85rem', marginBottom: '1rem', color: 'var(--text-secondary)' }}>Enter the OTP sent to {form.mailId}</p>
-              <input className="form-control" placeholder="Enter OTP" value={otp} onChange={e => setOtp(e.target.value)} style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '2px', marginBottom: '1rem' }} />
-              <button className="btn btn-success btn-lg" style={{ width: '100%' }} disabled={verifyingOtp || otp.length < 4} onClick={handleSubmit}>
-                {verifyingOtp ? 'Verifying...' : '✓ Verify & Submit'}
-              </button>
+              <input 
+                className="form-control" 
+                placeholder="Enter OTP" 
+                value={otp} 
+                onChange={e => setOtp(e.target.value)} 
+                 style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '2px', marginBottom: '1rem', color: '#000000' }}
+                 className="form-control"
+              />
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'stretch' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ width: '100%', color: 'black', fontWeight: 600 }} 
+                  disabled={verifyingOtp || otp.length < 6}
+                  onClick={handleSubmit}
+                >
+                  {verifyingOtp ? 'Verifying...' : '✓ Verify & Submit'}
+                </button>
+                
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ width: '100%', color: 'black', fontWeight: 600 }}
+                  disabled={submitting}
+                  onClick={handleResendOtp}
+                >
+                  {submitting ? 'Resending...' : '🔄 Resend OTP'}
+                </button>
+              </div>
+
+              <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+                {!otp || otp.length < 6 ? (
+                  <small style={{ color: 'var(--accent-rose)', display: 'block' }}>Enter the full 6-digit OTP to enable verification.</small>
+                ) : (
+                  <small style={{ color: 'var(--accent-emerald)', display: 'block' }}>Ready to verify.</small>
+                )}
+              </div>
             </div>
           )}
         </div>

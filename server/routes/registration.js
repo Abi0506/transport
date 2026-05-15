@@ -65,6 +65,8 @@ const sendRegistrationConfirmation = async ({ mailId, name, stopName, userType, 
   await sendMail(mailId, subject, html);
 };
 
+const normalizeMailId = (mailId) => (mailId || '').toString().trim().toLowerCase();
+
 router.get('/boarding-points', async (req, res) => {
   try {
     const routes = await Route.find({ isActive: true }).sort({ routeNumber: 1 });
@@ -110,6 +112,33 @@ router.get('/check-advance/:registerNumber', async (req, res) => {
   }
 });
 
+router.get('/check-duplicate', async (req, res) => {
+  try {
+    const { field, value } = req.query;
+    const trimmedValue = (value || '').toString().trim();
+
+    if (!field || !trimmedValue) {
+      return res.status(400).json({ message: 'Field and value are required' });
+    }
+
+    let query;
+    if (field === 'mailId') {
+      query = { mailId: trimmedValue.toLowerCase() };
+    } else if (field === 'employeeId') {
+      query = { employeeId: trimmedValue };
+    } else if (field === 'registerNumber') {
+      query = { registerNumber: trimmedValue };
+    } else {
+      return res.status(400).json({ message: 'Invalid field' });
+    }
+
+    const registration = await Registration.findOne(query);
+    res.json({ exists: !!registration });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 router.post('/student', uploadMultiple, async (req, res) => {
   try {
     const registrationData = typeof req.body.registration === 'string'
@@ -125,18 +154,27 @@ router.post('/student', uploadMultiple, async (req, res) => {
       fullPaymentReceiptNumber, fullPaymentDate
     } = registrationData || req.body;
 
+    const normalizedMailId = normalizeMailId(mailId);
+
     if (!guidelinesAccepted || !instructionsAccepted) {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
     }
 
-    const existing = await Registration.findOne({ registerNumber, userType: 'student', registrationCompleted: true });
-    const draft = await Registration.findOne({ registerNumber, userType: 'student', registrationCompleted: false });
+    const existing = await Registration.findOne({
+      $or: [{ registerNumber }, { mailId: normalizedMailId }],
+      registrationCompleted: true
+    });
+    const draft = await Registration.findOne({
+      $or: [{ registerNumber }, { mailId: normalizedMailId }],
+      userType: 'student',
+      registrationCompleted: false
+    });
     if (existing) {
       return res.status(400).json({ message: 'Student with this register number already registered' });
     }
 
     // Check email uniqueness
-    const emailExists = await Registration.findOne({ mailId, _id: { $ne: draft?._id } });
+    const emailExists = await Registration.findOne({ mailId: normalizedMailId, _id: { $ne: draft?._id } });
     if (emailExists) {
       return res.status(400).json({ message: 'This email is already used in another registration' });
     }
@@ -167,7 +205,7 @@ router.post('/student', uploadMultiple, async (req, res) => {
       distanceOrder: stop.distanceOrder,
       phoneNumber,
       emergencyPhoneNumber,
-      mailId,
+      mailId: normalizedMailId,
       guidelinesAccepted,
       instructionsAccepted,
       receiptFile: req.files?.advanceReceipt?.[0]?.filename || (payment ? payment.receiptFile : null),
@@ -205,28 +243,39 @@ router.post('/faculty', uploadMultiple, async (req, res) => {
       : req.body.registration;
 
     const {
-      employeeId, name, dateOfBirth, category, designation,
+      employeeId, name, dateOfBirth, designation,
       department, institution, address, pincode, boardingPoint,
       phoneNumber, emergencyPhoneNumber, mailId,
       guidelinesAccepted, instructionsAccepted,
       fullPaymentReceiptNumber, fullPaymentDate
     } = registrationData || req.body;
 
+    const normalizedMailId = normalizeMailId(mailId);
+
     if (!guidelinesAccepted || !instructionsAccepted) {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
     }
 
-    if (!mailId.endsWith('@psgitech.ac.in')) {
+    if (!normalizedMailId.endsWith('@psgitech.ac.in')) {
       return res.status(400).json({ message: 'Faculty email must be from psgitech.ac.in domain' });
     }
 
-    const existing = await Registration.findOne({ employeeId, userType: 'faculty' });
+    const existing = await Registration.findOne({
+      $or: [{ employeeId }, { mailId: normalizedMailId }],
+      registrationCompleted: true
+    });
     if (existing) {
       return res.status(400).json({ message: 'Faculty with this employee ID already registered' });
     }
 
     // Check email uniqueness
-    const emailExists = await Registration.findOne({ mailId, userType: 'faculty' });
+    const draft = await Registration.findOne({
+      $or: [{ employeeId }, { mailId: normalizedMailId }],
+      userType: 'faculty',
+      registrationCompleted: false
+    });
+
+    const emailExists = await Registration.findOne({ mailId: normalizedMailId, _id: { $ne: draft?._id } });
     if (emailExists) {
       return res.status(400).json({ message: 'This email is already used in a faculty registration' });
     }
@@ -236,13 +285,12 @@ router.post('/faculty', uploadMultiple, async (req, res) => {
       return res.status(400).json({ message: 'Invalid boarding point' });
     }
     const stop = route.stops.find(s => s.name === boardingPoint);
-
-    const registration = new Registration({
+    
+    const registrationPayload = {
       userType: 'faculty',
       employeeId,
       name,
       dateOfBirth: new Date(dateOfBirth),
-      category,
       designation,
       department,
       institution,
@@ -254,16 +302,19 @@ router.post('/faculty', uploadMultiple, async (req, res) => {
       distanceOrder: stop.distanceOrder,
       phoneNumber,
       emergencyPhoneNumber,
-      mailId,
+      mailId: normalizedMailId,
       guidelinesAccepted,
       instructionsAccepted,
       finalReceiptFile: req.files?.fullPaymentReceipt?.[0]?.filename || null,
       fullPaymentReceiptNumber: fullPaymentReceiptNumber || null,
       fullFeePaid: !!req.files?.fullPaymentReceipt?.[0],
       fullPaymentDate: fullPaymentDate ? new Date(fullPaymentDate) : null,
-      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null
-    });
+      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null,
+      registrationCompleted: true
+    };
 
+    const registration = draft || new Registration(registrationPayload);
+    Object.assign(registration, registrationPayload);
     await registration.save();
     await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint, userType: 'faculty', employeeId: registration.employeeId });
     res.status(201).json({
@@ -275,6 +326,7 @@ router.post('/faculty', uploadMultiple, async (req, res) => {
       concession: '50%'
     });
   } catch (error) {
+    console.error('Faculty registration error:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -286,26 +338,37 @@ router.post('/staff', uploadMultiple, async (req, res) => {
       : req.body.registration;
 
     const {
-      employeeId, name, dateOfBirth, category, designation,
+      employeeId, name, dateOfBirth, designation,
       department, institution, address, pincode, boardingPoint,
       phoneNumber, emergencyPhoneNumber, mailId,
       guidelinesAccepted, instructionsAccepted,
       fullPaymentReceiptNumber, fullPaymentDate
     } = registrationData || req.body;
 
+    const normalizedMailId = normalizeMailId(mailId);
+
     if (!guidelinesAccepted || !instructionsAccepted) {
       return res.status(400).json({ message: 'You must accept both guidelines and instructions' });
     }
 
-    const existing = await Registration.findOne({ employeeId, userType: 'staff' });
+    const existing = await Registration.findOne({
+      $or: [{ employeeId }, { mailId: normalizedMailId }],
+      registrationCompleted: true
+    });
     if (existing) {
       return res.status(400).json({ message: 'Staff with this employee ID already registered' });
     }
 
     // Check email uniqueness
-    const emailExists = await Registration.findOne({ mailId });
+    const draft = await Registration.findOne({
+      $or: [{ employeeId }, { mailId: normalizedMailId }],
+      userType: 'staff',
+      registrationCompleted: false
+    });
+
+    const emailExists = await Registration.findOne({ mailId: normalizedMailId, _id: { $ne: draft?._id } });
     if (emailExists) {
-      return res.status(400).json({ message: 'This email is already used in another registration' });
+      return res.status(400).json({ message: 'This email is already used in another staff registration' });
     }
 
     const route = await Route.findOne({ 'stops.name': boardingPoint });
@@ -313,13 +376,12 @@ router.post('/staff', uploadMultiple, async (req, res) => {
       return res.status(400).json({ message: 'Invalid boarding point' });
     }
     const stop = route.stops.find(s => s.name === boardingPoint);
-
-    const registration = new Registration({
+    
+    const registrationPayload = {
       userType: 'staff',
       employeeId,
       name,
       dateOfBirth: new Date(dateOfBirth),
-      category,
       designation,
       department,
       institution,
@@ -331,16 +393,19 @@ router.post('/staff', uploadMultiple, async (req, res) => {
       distanceOrder: stop.distanceOrder,
       phoneNumber,
       emergencyPhoneNumber,
-      mailId,
+      mailId: normalizedMailId,
       guidelinesAccepted,
       instructionsAccepted,
       finalReceiptFile: req.files?.fullPaymentReceipt?.[0]?.filename || null,
       fullPaymentReceiptNumber: fullPaymentReceiptNumber || null,
       fullFeePaid: !!req.files?.fullPaymentReceipt?.[0],
       fullPaymentDate: fullPaymentDate ? new Date(fullPaymentDate) : null,
-      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null
-    });
+      finalConfirmationMethod: req.files?.fullPaymentReceipt?.[0] ? 'upload' : null,
+      registrationCompleted: true
+    };
 
+    const registration = draft || new Registration(registrationPayload);
+    Object.assign(registration, registrationPayload);
     await registration.save();
     await sendRegistrationConfirmation({ mailId, name, stopName: boardingPoint, userType: 'staff', employeeId: registration.employeeId });
     res.status(201).json({
@@ -352,6 +417,7 @@ router.post('/staff', uploadMultiple, async (req, res) => {
       concession: '25%'
     });
   } catch (error) {
+    console.error('Staff registration error:', error);
     res.status(500).json({ message: error.message });
   }
 });
