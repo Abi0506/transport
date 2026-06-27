@@ -37,7 +37,7 @@ const registrationSchema = new mongoose.Schema({
   // Calculated fields
   age: { type: Number },
   distanceOrder: { type: Number }, // from stop data (1 = farthest)
-  feeConcession: { type: Number, default: 0 }, // 0.50 for faculty, 0.25 for staff
+  feeConcession: { type: Number, default: 0 }, // 0.50 for faculty, 0.80 for staff
   finalFees: { type: Number },
 
   // Status fields
@@ -52,14 +52,17 @@ const registrationSchema = new mongoose.Schema({
 
   // Payment
   advancePaid: { type: Boolean, default: false },
-  advancePaymentDate: { type: Date },
-  advanceConfirmationMethod: { type: String, enum: ['upload', 'manual', 'bulk', null], default: null },
+  advanceConfirmationMethod: { type: String, enum: ['upload', 'manual', 'bulk', 'sponsored', null], default: null },
   receiptFile: { type: String }, // Advance fee receipt
   advanceReceiptNumber: { type: String },
   
   fullFeePaid: { type: Boolean, default: false },
   finalReceiptFile: { type: String }, // Final fee receipt
   finalConfirmationMethod: { type: String, enum: ['upload', 'manual', 'bulk', null], default: null },
+
+  // Government sponsored / scholarship students who are exempt from advance payment
+  governmentSponsored: { type: Boolean, default: false },
+  sponsorshipDetails: { type: String },
 
   // Guidelines
   guidelinesAccepted: { type: Boolean, default: false },
@@ -93,7 +96,7 @@ registrationSchema.pre('save', function (next) {
   if (this.userType === 'faculty') {
     this.feeConcession = 0.50;
   } else if (this.userType === 'staff') {
-    this.feeConcession = 0.25;
+    this.feeConcession = 0.80;
   } else {
     this.feeConcession = 0;
   }
@@ -119,7 +122,6 @@ registrationSchema.index({ boardingPoint: 1 });
 registrationSchema.index({ allocatedRoute: 1 });
 registrationSchema.index({ registerNumber: 1 }, { unique: true, sparse: true });
 registrationSchema.index({ employeeId: 1 }, { unique: true, sparse: true });
-registrationSchema.index({ mailId: 1 }, { unique: true, sparse: true });
 registrationSchema.index({ loginUsername: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Registration', registrationSchema);

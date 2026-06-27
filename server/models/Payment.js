@@ -1,11 +1,12 @@
 const mongoose = require('mongoose');
 
 const paymentSchema = new mongoose.Schema({
-  registration: { type: mongoose.Schema.Types.ObjectId, ref: 'Registration', required: true },
+  registration: { type: mongoose.Schema.Types.ObjectId, ref: 'Registration', default: null },
   rollNumber: { type: String, required: true },
   receiptNumber: { type: String, required: true, unique: true, sparse: true, trim: true },
   amount: { type: Number, default: 5000 },
   receiptFile: { type: String },
+  paymentDate: { type: Date },
   paidStatus: {
     type: String,
     enum: ['pending', 'uploaded', 'confirmed'],

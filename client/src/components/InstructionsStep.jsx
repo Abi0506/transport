@@ -39,7 +39,7 @@ export default function InstructionsStep({ accepted, setAccepted }) {
 
         <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(245,158,11,0.1)', borderRadius: '8px', borderLeft: '3px solid var(--accent-amber)' }}>
           <p style={{ fontWeight: 600, color: 'var(--accent-amber)' }}>Contact Email:</p>
-          <p>transport@psgitech.ac.in</p>
+          <p>transport.psgitech@gmail.com</p>
         </div>
       </div>
 

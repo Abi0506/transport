@@ -1,12 +1,15 @@
 const nodemailer = require('nodemailer');
 
+const mailUser = process.env.MAIL_USER || 'transport.psgitech@gmail.com';
+const mailPass = process.env.MAIL_PASS || 'aadg kwsb hwgh rsyg';
+
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
   secure: false,
   auth: {
-    user: 'abishek25052006@gmail.com',
-    pass: 'gfiw medh cien gjzm'
+    user: mailUser,
+    pass: mailPass
   },
   // Connection pool settings for reliability
   pool: true,
@@ -31,7 +34,7 @@ const sendMail = async (to, subject, html) => {
   
   try {
     const info = await transporter.sendMail({
-      from: '"PSG iTech Transport" <abishek25052006@gmail.com>',
+      from: `"PSG iTech Transport" <${mailUser}>`,
       to,
       subject,
       html

@@ -56,7 +56,7 @@ export default function PaymentUpload() {
     <div className="page fade-in">
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
       <div className="page-header" style={{ textAlign: 'center' }}>
-        <h1>💳 Payment & Receipt Upload</h1>
+        <h1>Payment & Receipt Upload</h1>
         <p>Upload your ₹5,000 advance payment receipt PDF and enter the receipt number</p>
       </div>
 

@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const Route = require('../models/Route');
 const Registration = require('../models/Registration');
+const Payment = require('../models/Payment');
+const Suggestion = require('../models/Suggestion');
 const bcrypt = require('bcryptjs');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 
@@ -66,21 +68,35 @@ router.get('/routes', async (req, res) => {
         boardingPointRoute: route._id
       });
 
-      const facultyCount = registrations.filter(r => r.userType === 'faculty').length;
-      const staffCount = registrations.filter(r => r.userType === 'staff').length;
-      const studentsByYear = {};
-      for (let y = 1; y <= 5; y++) {
-        studentsByYear[`year${y}`] = registrations.filter(
-          r => r.userType === 'student' && r.academicYear === y
-        ).length;
-      }
-      const studentTotal = registrations.filter(r => r.userType === 'student').length;
-      const studentsByYearPercent = {};
-      for (let y = 1; y <= 5; y++) {
-        const key = `year${y}`;
-        studentsByYearPercent[key] = studentTotal > 0 ? Math.round((studentsByYear[key] / studentTotal) * 100) : 0;
-      }
-      const totalRegistered = registrations.length;
+      // Counts by userType — apply rule: include commuters who are "registered" (registrationCompleted)
+      // and for students require a confirmed payment. Faculty/staff are included if registered.
+      const facultyAll = registrations.filter(r => r.userType === 'faculty' && r.registrationCompleted).length;
+      const staffAll = registrations.filter(r => r.userType === 'staff' && r.registrationCompleted).length;
+
+      // Find confirmed payments for registrations on this route
+      const regIds = registrations.map(r => r._id).filter(Boolean);
+      const confirmedPayments = await Payment.find({ registration: { $in: regIds }, paidStatus: 'confirmed' }).select('registration').lean();
+      const confirmedRegSet = new Set(confirmedPayments.map(p => String(p.registration)));
+
+      // Students are counted only if registrationCompleted and payment confirmed
+      const studentsConfirmed = registrations.filter(r => r.userType === 'student' && r.registrationCompleted && confirmedRegSet.has(String(r._id))).length;
+
+      const facultyCount = facultyAll;
+      const staffCount = staffAll;
+      const studentTotal = studentsConfirmed;
+
+      // Total commuters considered for seating
+      const totalCommuters = facultyCount + staffCount + studentTotal;
+
+      // Percent metrics
+      const facultyPercent = route.capacity > 0 ? Math.round((facultyCount / route.capacity) * 100) : 0;
+      const staffPercent = route.capacity > 0 ? Math.round((staffCount / route.capacity) * 100) : 0;
+      const studentPercent = route.capacity > 0 ? Math.round((studentTotal / route.capacity) * 100) : 0;
+
+      const facultyPercentOfCommuters = totalCommuters > 0 ? Math.round((facultyCount / totalCommuters) * 100) : 0;
+      const staffPercentOfCommuters = totalCommuters > 0 ? Math.round((staffCount / totalCommuters) * 100) : 0;
+      const studentPercentOfCommuters = totalCommuters > 0 ? Math.round((studentTotal / totalCommuters) * 100) : 0;
+
       const allocatedCount = registrations.filter(r => r.registrationStatus === 'allocated').length;
       const needAllocationCount = registrations.filter(r => r.advancePaid && ['pending', 'waitlisted'].includes(r.registrationStatus)).length;
 
@@ -104,18 +120,21 @@ router.get('/routes', async (req, res) => {
         routeNumber: route.routeNumber,
         routeName: route.routeName,
         capacity: route.capacity,
-        totalRegistered,
         allocatedCount,
         needAllocationCount,
-        occupancyPercent: route.capacity > 0 ? Math.round((totalRegistered / route.capacity) * 100) : 0,
+        occupancyPercent: route.capacity > 0 ? Math.round((totalCommuters / route.capacity) * 100) : 0,
         facultyCount,
         staffCount,
-        studentTotal,
-        studentsByYear,
-        studentsByYearPercent,
-        facultyPercent: route.capacity > 0 ? Math.round((facultyCount / route.capacity) * 100) : 0,
-        staffPercent: route.capacity > 0 ? Math.round((staffCount / route.capacity) * 100) : 0,
-        studentPercent: route.capacity > 0 ? Math.round((studentTotal / route.capacity) * 100) : 0,
+        // totalRegistered & occupancyPercent now reflect commuters considered for seating
+        totalRegistered: totalCommuters,
+        commuterSplit: {
+          students: { count: studentTotal, percentOfCapacity: studentPercent, percentOfCommuters: studentPercentOfCommuters },
+          faculty: { count: facultyCount, percentOfCapacity: facultyPercent, percentOfCommuters: facultyPercentOfCommuters },
+          staff:   { count: staffCount,   percentOfCapacity: staffPercent,   percentOfCommuters: staffPercentOfCommuters }
+        },
+        facultyPercent,
+        staffPercent,
+        studentPercent,
         stops: stopCounts
       };
     }));
@@ -250,6 +269,112 @@ router.post('/credentials', async (req, res) => {
   }
 });
 
+// ============ ADVANCE PAYMENT EDITOR ============
+
+router.get('/payments', async (req, res) => {
+  try {
+    const { status, rollNumber, receiptNumber, search, limit = 100 } = req.query;
+    const query = {};
+
+    if (status) query.paidStatus = status;
+    if (rollNumber) query.rollNumber = rollNumber.trim();
+    if (receiptNumber) query.receiptNumber = receiptNumber.trim();
+    if (search) {
+      const trimmedSearch = search.trim();
+      const escapedSearch = trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$or = [
+        { rollNumber: { $regex: escapedSearch, $options: 'i' } },
+        { receiptNumber: { $regex: escapedSearch, $options: 'i' } }
+      ];
+    }
+
+    const payments = await Payment.find(query)
+      .populate('registration', 'name registerNumber employeeId userType')
+      .sort({ confirmedAt: -1, updatedAt: -1, createdAt: -1 })
+      .limit(Math.min(parseInt(limit, 10) || 100, 500));
+
+    res.json(payments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.put('/payments/:paymentId', async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    const { rollNumber, receiptNumber, paymentDate } = req.body;
+
+    const payment = await Payment.findById(paymentId).populate('registration');
+    if (!payment) {
+      return res.status(404).json({ message: 'Advance payment record not found' });
+    }
+
+    const nextRollNumber = typeof rollNumber === 'string' ? rollNumber.trim() : '';
+    const nextReceiptNumber = typeof receiptNumber === 'string' ? receiptNumber.trim() : '';
+    const nextPaymentDate = paymentDate ? new Date(paymentDate) : null;
+
+    if (!nextRollNumber) {
+      return res.status(400).json({ message: 'Roll number is required' });
+    }
+    if (!nextReceiptNumber) {
+      return res.status(400).json({ message: 'Receipt number is required' });
+    }
+    if (!nextPaymentDate || Number.isNaN(nextPaymentDate.getTime())) {
+      return res.status(400).json({ message: 'Valid payment date is required' });
+    }
+
+    const existingReceipt = await Payment.findOne({ receiptNumber: nextReceiptNumber, _id: { $ne: payment._id } });
+    if (existingReceipt) {
+      return res.status(400).json({ message: 'Receipt number is already used by another payment record' });
+    }
+
+    const linkedRegistration = payment.registration || await Registration.findOne({
+      $or: [{ registerNumber: payment.rollNumber }, { employeeId: payment.rollNumber }]
+    });
+
+    if (linkedRegistration) {
+      const registrationQuery = linkedRegistration.userType === 'student'
+        ? { registerNumber: nextRollNumber, _id: { $ne: linkedRegistration._id } }
+        : { employeeId: nextRollNumber, _id: { $ne: linkedRegistration._id } };
+      const duplicateRegistration = await Registration.findOne(registrationQuery);
+      if (duplicateRegistration) {
+        return res.status(400).json({ message: 'Roll number is already used by another registration' });
+      }
+    }
+
+    payment.rollNumber = nextRollNumber;
+    payment.receiptNumber = nextReceiptNumber;
+    payment.paymentDate = nextPaymentDate;
+    if (payment.paidStatus !== 'confirmed') {
+      payment.paidStatus = 'confirmed';
+    }
+    if (!payment.confirmationMethod) {
+      payment.confirmationMethod = 'manual';
+    }
+    payment.confirmedAt = payment.confirmedAt || new Date();
+    await payment.save();
+
+    if (linkedRegistration) {
+      if (linkedRegistration.userType === 'student') {
+        linkedRegistration.registerNumber = nextRollNumber;
+      } else {
+        linkedRegistration.employeeId = nextRollNumber;
+      }
+      linkedRegistration.advanceReceiptNumber = nextReceiptNumber;
+      linkedRegistration.receiptFile = payment.receiptFile || linkedRegistration.receiptFile;
+      await linkedRegistration.save();
+    }
+
+    const updatedPayment = await Payment.findById(payment._id).populate('registration', 'name registerNumber employeeId userType');
+    res.json({ message: 'Advance payment updated successfully', payment: updatedPayment });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(400).json({ message: 'Receipt number already exists' });
+    }
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // ============ EDIT STOPS ============
 
 router.put('/route/:routeId/stops', async (req, res) => {
@@ -282,7 +407,7 @@ const buildRegistrationMail = (registration) => `
       <p>Thank you for registering in the Transport App of PSGiTech for availing college bus during AY 2026-27 from the stop <strong>${registration.boardingPoint}</strong>.</p>
       <p><strong>Your login credentials are:</strong></p>
       <p style="margin-left: 16px;">User name: Register Number / D.No.<br />Password: Date of Birth (yyyymmdd)</p>
-      <p><strong>Advance Payment:</strong> ₹5,000 must be paid in advance (cash at office). This amount is refundable as per transport rules.</p>
+      
       <p>Allocation will be done based on your boarding point and the distance matrix.</p>
       <p>If you are allotted a seat, you will receive an allocation mail regarding bus fees, payment date, bus route number, and other procedures.</p>
       <p><strong>Important:</strong> Please refer to the Transport Guidelines for detailed information.</p>
@@ -717,6 +842,35 @@ router.post('/swap-stop', async (req, res) => {
 
 // ============ ALL REGISTRATIONS ============
 
+// Admin: get all suggestions
+router.get('/suggestions', async (req, res) => {
+  try {
+    const suggestions = await Suggestion.find().sort({ createdAt: -1 }).limit(5000)
+    res.json(suggestions)
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Admin: export suggestions as CSV
+router.get('/suggestions/export', async (req, res) => {
+  try {
+    const suggestions = await Suggestion.find().sort({ createdAt: -1 }).limit(5000)
+    res.setHeader('Content-Type', 'text/csv')
+    res.setHeader('Content-Disposition', 'attachment; filename="suggestions.csv"')
+    // CSV header
+    res.write('registerNumber,employeeId,mailId,routeSuggestion,createdAt\n')
+    for (const s of suggestions) {
+      // Escape double quotes and commas
+      const route = (s.routeSuggestion || '').replace(/"/g, '""')
+      res.write(`"${s.registerNumber || ''}","${s.employeeId || ''}","${s.mailId}","${route}","${s.createdAt.toISOString()}"\n`)
+    }
+    res.end()
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
 router.get('/registrations', async (req, res) => {
   try {
     const { userType, status, route, page = 1, limit = 50, advancePaid, fullFeePaid, view } = req.query;
@@ -728,7 +882,32 @@ router.get('/registrations', async (req, res) => {
     if (fullFeePaid === 'true' || fullFeePaid === 'false') query.fullFeePaid = fullFeePaid === 'true';
 
     if (view === 'registered') {
-      query.registrationStatus = { $in: ['pending', 'allocated', 'waitlisted'] };
+      query.registrationCompleted = true;
+    } else if (view === 'unregistered') {
+      const payments = await Payment.find({ paidStatus: 'confirmed' })
+        .populate('registration', 'name userType registerNumber employeeId boardingPoint boardingPointRoute registrationStatus registrationCompleted advancePaid fullFeePaid')
+        .sort({ confirmedAt: -1, updatedAt: -1, createdAt: -1 })
+        .limit(Math.min(parseInt(limit, 10) || 50, 500));
+
+      const registrations = payments
+        .filter(payment => !payment.registration || payment.registration.registrationCompleted === false)
+        .map(payment => ({
+          _id: payment._id,
+          name: payment.registration?.name || 'Unregistered advance payment',
+          userType: payment.registration?.userType || 'student',
+          registerNumber: payment.rollNumber,
+          registrationStatus: 'unregistered',
+          advancePaid: true,
+          fullFeePaid: false,
+          boardingPoint: payment.registration?.boardingPoint || '',
+          boardingPointRoute: payment.registration?.boardingPointRoute || null,
+          paymentDate: payment.paymentDate,
+          receiptNumber: payment.receiptNumber,
+          createdAt: payment.createdAt,
+          updatedAt: payment.updatedAt
+        }));
+
+      return res.json({ total: registrations.length, page: parseInt(page), limit: parseInt(limit), registrations });
     } else if (view === 'deallocated') {
       query.registrationStatus = { $in: ['rejected', 'cancelled', 'rejected_refund'] };
     } else if (view === 'allocated') {

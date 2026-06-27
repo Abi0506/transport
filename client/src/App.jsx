@@ -9,6 +9,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import PaymentUpload from './pages/PaymentUpload'
 import OfficePayment from './pages/OfficePayment'
 import RoutesViewer from './pages/RoutesViewer'
+import Suggestions from './pages/Suggestions'
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
             <Route path="/payment" element={<PaymentUpload />} />
             <Route path="/office" element={<OfficePayment />} />
             <Route path="/routes-viewer" element={<RoutesViewer />} />
+            <Route path="/suggestions" element={<Suggestions />} />
             <Route path="/admin" element={<AdminLogin />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -92,6 +92,43 @@ router.post('/upload-receipt', upload.single('receipt'), async (req, res) => {
   }
 });
 
+// Validate advance receipt before moving to OTP verification
+router.get('/validate-advance', async (req, res) => {
+  try {
+    const { rollNumber, receiptNumber } = req.query;
+    const normalizedRollNumber = (rollNumber || '').trim();
+    const normalizedReceiptNumber = (receiptNumber || '').trim();
+
+    if (!normalizedRollNumber || !normalizedReceiptNumber) {
+      return res.status(400).json({ message: 'Roll number and receipt number are required' });
+    }
+
+    const payment = await Payment.findOne({
+      rollNumber: normalizedRollNumber,
+      receiptNumber: normalizedReceiptNumber,
+      paidStatus: 'confirmed'
+    }).populate('registration', 'name registerNumber employeeId userType');
+
+    if (!payment) {
+      return res.status(404).json({ message: 'Receipt number does not match the office payment record for this register number' });
+    }
+
+    res.json({
+      valid: true,
+      message: 'Receipt number verified successfully',
+      payment: {
+        rollNumber: payment.rollNumber,
+        receiptNumber: payment.receiptNumber,
+        paidStatus: payment.paidStatus,
+        paymentDate: payment.paymentDate,
+        confirmationMethod: payment.confirmationMethod
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // Submit cancellation request
 router.post('/cancel-request', async (req, res) => {
   try {
@@ -132,9 +169,10 @@ router.post('/upload-final-receipt', upload.single('receipt'), async (req, res) 
 // Manual confirmation by office staff
 router.post('/confirm-manual', async (req, res) => {
   try {
-    const { rollNumber, receiptNumber, confirmedBy } = req.body;
+    const { rollNumber, receiptNumber, paymentDate, confirmedBy } = req.body;
     const normalizedRollNumber = (rollNumber || '').trim();
     const normalizedReceiptNumber = (receiptNumber || '').trim();
+    const normalizedPaymentDate = paymentDate ? new Date(paymentDate) : null;
 
     if (!normalizedRollNumber) {
       return res.status(400).json({ message: 'Roll number or staff ID is required' });
@@ -142,28 +180,17 @@ router.post('/confirm-manual', async (req, res) => {
     if (!normalizedReceiptNumber) {
       return res.status(400).json({ message: 'Receipt number is required' });
     }
-
-    let registration = await Registration.findOne({
-      $or: [{ registerNumber: normalizedRollNumber }, { employeeId: normalizedRollNumber }]
-    });
-
-    if (!registration) {
-      const isStudentRoll = /^7155\d{8}$/.test(normalizedRollNumber);
-      registration = new Registration({
-        userType: isStudentRoll ? 'student' : 'faculty',
-        ...(isStudentRoll ? { registerNumber: normalizedRollNumber } : { employeeId: normalizedRollNumber }),
-        registrationCompleted: false,
-        registrationStatus: 'pending'
-      });
-      await registration.save({ validateBeforeSave: false });
+    if (!paymentDate || Number.isNaN(normalizedPaymentDate.getTime())) {
+      return res.status(400).json({ message: 'Date of payment is required and must be valid' });
     }
 
     let payment = await Payment.findOne({ rollNumber: normalizedRollNumber });
     if (!payment) {
       payment = new Payment({
-        registration: registration._id,
+        registration: null,
         rollNumber: normalizedRollNumber,
         receiptNumber: normalizedReceiptNumber,
+        paymentDate: normalizedPaymentDate,
         paidStatus: 'pending'
       });
     }
@@ -175,20 +202,13 @@ router.post('/confirm-manual', async (req, res) => {
     if (normalizedReceiptNumber) {
       payment.receiptNumber = normalizedReceiptNumber;
     }
+    payment.paymentDate = normalizedPaymentDate;
 
     payment.paidStatus = 'confirmed';
     payment.confirmationMethod = 'manual';
     payment.confirmedBy = confirmedBy || 'Office Staff';
     payment.confirmedAt = new Date();
     await payment.save();
-
-    registration.advancePaid = true;
-    registration.advanceConfirmationMethod = 'manual';
-    registration.advancePaymentDate = payment.confirmedAt;
-    if (payment.receiptNumber) {
-      registration.advanceReceiptNumber = payment.receiptNumber;
-    }
-    await registration.save({ validateBeforeSave: false });
 
     res.json({ message: `Payment confirmed for ${normalizedRollNumber}`, payment });
   } catch (error) {
@@ -199,30 +219,53 @@ router.post('/confirm-manual', async (req, res) => {
 // Bulk confirmation
 router.post('/bulk-confirm', async (req, res) => {
   try {
-    const { rollNumbers, confirmedBy } = req.body;
+    const { rollNumbers, entries, confirmedBy } = req.body;
+    const normalizedEntries = Array.isArray(entries)
+      ? entries
+      : Array.isArray(rollNumbers)
+        ? rollNumbers.map(rollNumber => ({ rollNumber }))
+        : [];
 
-    if (!Array.isArray(rollNumbers) || rollNumbers.length === 0) {
-      return res.status(400).json({ message: 'Provide an array of roll numbers' });
+    if (normalizedEntries.length === 0) {
+      return res.status(400).json({ message: 'Provide at least one roll number' });
     }
 
     const results = { confirmed: [], failed: [] };
 
-    for (const rollNumber of rollNumbers) {
+    for (const entry of normalizedEntries) {
       try {
+        const rollNumber = (entry.rollNumber || '').trim();
+        const receiptNumber = (entry.receiptNumber || '').trim();
+
+        if (!rollNumber) {
+          results.failed.push({ rollNumber: '', error: 'Roll number is required' });
+          continue;
+        }
+
         let payment = await Payment.findOne({ rollNumber });
         if (!payment) {
+          if (!receiptNumber) {
+            throw new Error('Receipt number is required when no existing payment record is found');
+          }
           const registration = await Registration.findOne({
             $or: [{ registerNumber: rollNumber }, { employeeId: rollNumber }]
           });
           payment = new Payment({
             registration: registration?._id,
             rollNumber,
+            receiptNumber,
             paidStatus: 'confirmed',
             confirmationMethod: 'bulk',
             confirmedBy: confirmedBy || 'Office Staff',
             confirmedAt: new Date()
           });
         } else {
+          if (receiptNumber && payment.receiptNumber && payment.receiptNumber !== receiptNumber) {
+            throw new Error('Receipt number does not match this roll number or staff ID');
+          }
+          if (receiptNumber) {
+            payment.receiptNumber = receiptNumber;
+          }
           payment.paidStatus = 'confirmed';
           payment.confirmationMethod = 'bulk';
           payment.confirmedBy = confirmedBy || 'Office Staff';
@@ -237,11 +280,14 @@ router.post('/bulk-confirm', async (req, res) => {
         if (registration) {
           registration.advancePaid = true;
           registration.advanceConfirmationMethod = 'bulk';
+          if (payment.receiptNumber) {
+            registration.advanceReceiptNumber = payment.receiptNumber;
+          }
           await registration.save();
         }
         results.confirmed.push(rollNumber);
       } catch (err) {
-        results.failed.push({ rollNumber, error: err.message });
+        results.failed.push({ rollNumber: (entry.rollNumber || '').trim(), error: err.message });
       }
     }
 

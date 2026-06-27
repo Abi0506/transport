@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const Registration = require('../models/Registration');
+const Route = require('../models/Route');
 const router = express.Router();
 
 // Admin login
@@ -25,10 +26,14 @@ router.post('/login', (req, res) => {
 router.post('/user-login', async (req, res) => {
   try {
     const { id, dob } = req.body;
-    
-    // Find user by registerNumber or employeeId
+    const rawId = (id || '').toString().trim();
+    // Build a case-insensitive exact-match regex for employeeId to allow I/i/A/a prefixes
+    const esc = rawId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const empRegex = new RegExp('^' + esc + '$', 'i');
+
+    // Find user by registerNumber (exact) or employeeId (case-insensitive)
     const user = await Registration.findOne({
-      $or: [{ registerNumber: id }, { employeeId: id }]
+      $or: [{ registerNumber: rawId }, { employeeId: empRegex }]
     })
       .populate('boardingPointRoute')
       .populate('allocatedRoute');
@@ -80,6 +85,31 @@ router.post('/credential-login', async (req, res) => {
   }
 });
 
+// Office staff login (using static credentials)
+router.post('/office-login', async (req, res) => {
+  try {
+    const { officeId, password } = req.body;
+
+    if (!officeId || !password) {
+      return res.status(400).json({ message: 'Office ID and password are required' });
+    }
+
+    // Static office credentials
+    if (officeId.trim() === 'office1' && password === 'office@123') {
+      return res.json({ 
+        message: 'Office login successful',
+        isOfficeStaff: true,
+        officeId: 'office1'
+      });
+    }
+
+    return res.status(401).json({ message: 'Invalid office credentials' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+
 // Get current user details
 router.get('/me', async (req, res) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -93,6 +123,16 @@ router.get('/me', async (req, res) => {
     res.json(user);
   } catch (err) {
     res.status(401).json({ message: 'Invalid token' });
+  }
+});
+
+// Get all active routes with their bus stops (public endpoint)
+router.get('/routes', async (req, res) => {
+  try {
+    const routes = await Route.find({ isActive: true }).sort({ routeName: 1 });
+    res.json(routes);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 

@@ -32,10 +32,11 @@ const FACULTY_DEPARTMENTS = [
   'B.Des',
   'CC',
   'CDC',
+  'Chem',
+  'Civil',
   'CMC',
   'CSBS',
   'CSE',
-  'Civil',
   'Convention',
   'ECE',
   'EEE',
@@ -43,10 +44,12 @@ const FACULTY_DEPARTMENTS = [
   'Engineering Design',
   'Exam cell',
   'Hostel',
+  'ICE',
   'IQAC',
   'Library',
   'Maintenance',
   'Maths',
+  'Mech',
   'Museum',
   'Office',
   'Office of Academic',
@@ -102,6 +105,7 @@ const DESIGNATIONS = [
   'Project Engineer',
   'Research Assistant',
   'Research Associate',
+  'Research Scholar',
   'Secretary',
   'Security',
   'Security Officer',
@@ -353,6 +357,15 @@ const HARDCODED_ROUTES = [
   }
 ]
 
+const BOARDING_POINTS = [...new Map(
+  HARDCODED_ROUTES.flatMap(route =>
+    route.stops.map(stop => [
+      stop.name.trim().toLowerCase(),
+      { ...stop, routeId: route.routeId, routeName: route.routeName }
+    ])
+  )
+).values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+
 export default function Registration() {
   const { userType } = useParams()
   const navigate = useNavigate()
@@ -370,8 +383,8 @@ export default function Registration() {
   const [searchStop, setSearchStop] = useState('')
   const [advanceReceiptFile, setAdvanceReceiptFile] = useState(null)
   const [advanceReceiptNumber, setAdvanceReceiptNumber] = useState('')
-  const [advancePaymentDate, setAdvancePaymentDate] = useState('')
   const [advanceDecision, setAdvanceDecision] = useState('')
+  const [advanceReceiptValidationError, setAdvanceReceiptValidationError] = useState('')
   const [guidelinesAccepted, setGuidelinesAccepted] = useState(false)
   const [instructionsAccepted, setInstructionsAccepted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -386,6 +399,7 @@ export default function Registration() {
   const [finalReceiptFile, setFinalReceiptFile] = useState(null)
   const [finalReceiptNumber, setFinalReceiptNumber] = useState('')
   const [finalPaymentDate, setFinalPaymentDate] = useState('')
+  const [governmentSponsored, setGovernmentSponsored] = useState(false)
   const [routesLoadError, setRoutesLoadError] = useState('')
 
   const [form, setForm] = useState({
@@ -400,7 +414,36 @@ export default function Registration() {
   const isEmployee = userType === 'employee'
   const isFaculty = isEmployee && form.employeeType === 'faculty'
   const isStaff = isEmployee && form.employeeType === 'staff'
-  const concession = isFaculty ? 50 : isStaff ? 25 : 0
+  const concession = isFaculty ? 50 : isStaff ? 80 : 0
+  const sortedRoutes = [...routes].sort((a, b) => a.routeName.localeCompare(b.routeName, undefined, { numeric: true, sensitivity: 'base' }))
+  const filteredBoardingPoints = BOARDING_POINTS.filter(stop => stop.name.toLowerCase().includes(searchStop.toLowerCase()))
+  // Department lists per institution (faculty-specific)
+  const PSG_ITECH_DEPARTMENTS = [
+    'AIDS',
+    'Architecture',
+    'B. Design',
+    'Chemistry',
+    'Civil',
+    'CSBS',
+    'CSE',
+    'ECE',
+    'ECE VLSI',
+    'EEE',
+    'English',
+    'Humanities',
+    'ICE',
+    'Mathematics',
+    'Mech',
+    'Physics',
+    'ROAI'
+  ]
+  const PSG_IAP_DEPARTMENTS = ['Arch']
+
+  const visibleDepartments = isStudent
+    ? STUDENT_DEPARTMENTS
+    : isFaculty
+      ? (form.institution === 'PSG IAP' ? PSG_IAP_DEPARTMENTS : PSG_ITECH_DEPARTMENTS)
+      : FACULTY_DEPARTMENTS
 
   useEffect(() => {
     const savedDraft = sessionStorage.getItem(storageKey)
@@ -427,18 +470,18 @@ export default function Registration() {
   useEffect(() => {
     if (USE_HARDCODED_BOARDING_POINTS) return
 
-    axios.get('/api/register/boarding-points')
+    axios.get('/api/auth/routes')
       .then(res => {
-        console.log('Loaded boarding points:', res.data);
+        console.log('Loaded routes:', res.data);
         setRoutes(res.data)
         setRoutesLoadError('')
       })
       .catch(err => {
         const message = err.response?.data?.message || err.message || 'Failed to load bus routes'
-        setRoutes([])
+        setRoutes(HARDCODED_ROUTES)
         setRoutesLoadError(message)
-        setToast({ type: 'error', msg: `Could not load boarding points: ${message}` })
-        console.error('Failed to load boarding points', err)
+        setToast({ type: 'error', msg: `Could not load bus routes, using fallback data: ${message}` })
+        console.error('Failed to load bus routes', err)
       })
   }, [])
 
@@ -457,55 +500,81 @@ export default function Registration() {
 
   // Function to validate and extract academic year from register number
   const validateRegisterNumber = (regNum) => {
-    // Must be 12 digits, start with 7155
-    if (!/^\d{12}$/.test(regNum) || !regNum.startsWith('7155')) {
-      return { valid: false, academicYear: null, error: 'Register Number must be 12 digits starting with 7155' }
+    // Must be 12 digits, start with 7155 or 7158
+    if (!/^\d{12}$/.test(regNum) || !(regNum.startsWith('7155') || regNum.startsWith('7158'))) {
+      return { valid: false, academicYear: null, error: 'Register Number must be 12 digits and start with 7155 or 7158' }
     }
-    
-    // Extract year code (digits 5-6, after 7155)
+
+    // Extract year code (digits 5-6)
     const yearCode = regNum.substring(4, 6)
-    const yearMap = { '23': '4', '22': '5', '24': '3', '25': '2', '26': '1' }
-    
+    // Map year codes to academic year (allowed: 22,23,24,25)
+    const yearMap = { '22': '5', '23': '4', '24': '3', '25': '2' }
+
     if (!yearMap[yearCode]) {
       return { valid: false, academicYear: null, error: `Invalid year code '${yearCode}'. Only 22, 23, 24, 25 are allowed` }
     }
-    
+
     return { valid: true, academicYear: yearMap[yearCode], error: null }
   }
+  // Basic validators for phone and pincode
+  const isValidPhone = (num) => /^\d{10}$/.test((num || '').trim())
+  const isValidPincode = (p) => /^\d{6}$/.test((p || '').trim())
+  const isValidEmployeeId = (id) => /^[IA]\d{4}$/i.test((id || '').toString().trim())
   const handleChange = (e) => {
+    // Student register number handling
     if (e.target.name === 'registerNumber' && isStudent) {
       const regNum = e.target.value
-      
+
       // Allow only digits
-      if (!/^\d*$/.test(regNum)) {
-        return
-      }
-      
+      if (!/^\d*$/.test(regNum)) return
+
       // Auto-validate and populate academic year
       if (regNum.length === 12) {
         const validation = validateRegisterNumber(regNum)
         if (validation.valid) {
-          setForm({ 
-            ...form, 
-            registerNumber: regNum, 
-            academicYear: validation.academicYear 
-          })
+          setForm({ ...form, registerNumber: regNum, academicYear: validation.academicYear })
         } else {
           setToast({ type: 'error', msg: validation.error })
         }
       } else {
         setForm({ ...form, registerNumber: regNum })
-            // Reset verification when user changes roll number
-            if (regNum !== form.registerNumber) {
-              setRollNumberVerified(false)
-            }
-      }    } else if (e.target.name === 'mailId' && isStudent) {
+        if (regNum !== form.registerNumber) setRollNumberVerified(false)
+      }
+      return
+    }
+
+    // Employee ID sanitization for faculty only
+    if (e.target.name === 'employeeId' && isFaculty) {
+      const raw = e.target.value
+      // Allow only digits and leading 'I'/'A' (case-insensitive)
+      let next = raw.replace(/[^0-9iIaA]/g, '')
+      // If starts with i/I/a/A, normalize to uppercase prefix and keep digits
+      if (/^[iIaA]/.test(next)) {
+        const prefix = next[0].toUpperCase()
+        const rest = next.slice(1).replace(/[^0-9]/g, '')
+        next = prefix + rest
+      }
+      // If user typed digits without prefix, force an 'I' prefix for consistency
+      if (next.length > 0 && !/^[IA]/.test(next)) {
+        next = 'I' + next.replace(/[^0-9]/g, '')
+      }
+      // Keep max length 5 (1 letter + 4 digits)
+      next = next.slice(0, 5)
+      // If only a single letter present (e.g., 'I' or 'A'), allow it as intermediate input
+      if (next.length === 1 && !/^[IA]$/.test(next)) return
+      setForm({ ...form, employeeId: next })
+      return
+    }
+
+    // Mail ID handling for student email inline validation
+    if (e.target.name === 'mailId' && isStudent) {
       const email = e.target.value
       setForm({ ...form, mailId: email })
-      // Email validation is done inline below the input field, no toast needed
-    } else {
-      setForm({ ...form, [e.target.name]: e.target.value })
+      return
     }
+
+    // Default handler
+    setForm({ ...form, [e.target.name]: e.target.value })
   }
 
   const selectStop = (stop, routeId) => {
@@ -544,6 +613,19 @@ export default function Registration() {
     sessionStorage.setItem(storageKey, JSON.stringify(draft))
   }, [storageKey, form, selectedRoute, selectedStop, searchStop, guidelinesAccepted, instructionsAccepted, advanceDecision, otpSent, otp, step])
 
+  // If institution changes and current department is no longer allowed, reset it.
+  useEffect(() => {
+    const allowed = isStudent
+      ? STUDENT_DEPARTMENTS
+      : isFaculty
+        ? (form.institution === 'PSG IAP' ? PSG_IAP_DEPARTMENTS : PSG_ITECH_DEPARTMENTS)
+        : FACULTY_DEPARTMENTS
+
+    if (form.department && !allowed.includes(form.department)) {
+      setForm(prev => ({ ...prev, department: '' }))
+    }
+  }, [form.institution, isFaculty, isStudent])
+
   useEffect(() => {
     if (!toast) return
     const timer = setTimeout(() => setToast(null), 3000)
@@ -551,7 +633,7 @@ export default function Registration() {
   }, [toast])
 
   const stepLabels = isStudent 
-    ? ['Year Selection', 'Roll Number', 'Guidelines', 'Instructions', 'Details', 'Boarding Point', 'Advance Payment', 'Final Fee', 'Review', 'Success']
+    ? ['Year Selection', 'Register Number', 'Guidelines', 'Instructions', 'Details', 'Boarding Point', 'Advance Payment', 'Final Fee', 'Review', 'Success']
     : ['Guidelines', 'Instructions', 'Details', 'Boarding Point', 'Review', 'Success']
 
   const handleSendOtp = async () => {
@@ -602,12 +684,13 @@ export default function Registration() {
       const formData = new FormData()
       formData.append('registration', JSON.stringify({
         ...form,
+        employeeId: isFaculty ? form.employeeId.trim().toLowerCase() : form.employeeId,
         boardingPoint: selectedStop?.name,
         guidelinesAccepted,
         instructionsAccepted,
+        governmentSponsored,
         advancePaymentDecision: isStudent ? advanceDecision : null,
         advanceReceiptNumber: isStudent ? advanceReceiptNumber : null,
-        advancePaymentDate: isStudent ? advancePaymentDate : null,
         fullPaymentReceiptNumber: isStudent ? finalReceiptNumber : null,
         fullPaymentDate: isStudent ? finalPaymentDate : null,
         advanceAmount: getAdvanceAmount(),
@@ -640,7 +723,7 @@ export default function Registration() {
       setSelectedStop(null)
       setAdvanceDecision('')
       setAdvanceReceiptNumber('')
-      setAdvancePaymentDate('')
+      setAdvanceReceiptValidationError('')
       setAdvanceReceiptFile(null)
       setFinalReceiptFile(null)
       setFinalReceiptNumber('')
@@ -671,13 +754,17 @@ export default function Registration() {
       if (step === 5) {
         const base = form.name && form.dateOfBirth && form.address && form.pincode &&
           form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
-        if (form.registerNumber.length !== 12 || !form.registerNumber.startsWith('7155')) return false
+        if (form.registerNumber.length !== 12 || !(form.registerNumber.startsWith('7155') || form.registerNumber.startsWith('7158'))) return false
         if (!form.mailId.endsWith(expectedDomain)) return false
         const validation = validateRegisterNumber(form.registerNumber)
+        if (!isValidPincode(form.pincode)) return false
+        if (!isValidPhone(form.phoneNumber) || !isValidPhone(form.emergencyPhoneNumber)) return false
         return base && validation.valid && form.gender && form.academicYear
       }
       if (step === 6) return selectedStop !== null
-      if (step === 7) return advanceDecision === 'yes' && advanceReceiptFile && advanceReceiptNumber && advancePaymentDate
+      if (step === 7) {
+        return governmentSponsored || (advanceReceiptFile && advanceReceiptNumber)
+      }
       if (step === 8) return finalReceiptFile && finalReceiptNumber && finalPaymentDate
       if (step === 9) return true
       return true
@@ -689,11 +776,84 @@ export default function Registration() {
         if (form.designation && !(form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS.includes(form.designation) : STAFF_DESIGNATIONS.includes(form.designation))) return false
         const base = form.name && form.dateOfBirth && form.address && form.pincode &&
           form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department && form.designation
-        return base && form.employeeId
+        if (!isValidPincode(form.pincode)) return false
+        if (!isValidPhone(form.phoneNumber) || !isValidPhone(form.emergencyPhoneNumber)) return false
+        if (isFaculty) {
+          return base && isValidEmployeeId(form.employeeId)
+        }
+        return base && !!form.employeeId
       }
       if (step === 4) return selectedStop !== null
       if (step === 5) return true
       return true
+    }
+  }
+
+  const [checkingNext, setCheckingNext] = useState(false)
+
+  const handleNext = async () => {
+    if (!canNext()) return
+    // Prevent duplicate submissions
+    setCheckingNext(true)
+    try {
+      // Student details step: step 5
+      if (isStudent && step === 5) {
+        try {
+          const regRes = await axios.get('/api/register/check-duplicate', {
+            params: { field: 'registerNumber', value: form.registerNumber, userType: 'student' }
+          })
+          if (regRes.data.exists) {
+            setToast({ type: 'error', msg: 'Student with this register number already exists' })
+            return
+          }
+
+        } catch (err) {
+          setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to verify registration' })
+          return
+        }
+      }
+
+      // Faculty details step: employee step is 3 for employees
+      if (isEmployee && isFaculty && step === 3) {
+        try {
+          const res = await axios.get('/api/register/check-duplicate', {
+            params: { field: 'employeeId', value: form.employeeId, userType: 'faculty' }
+          })
+          if (res.data.exists) {
+            setToast({ type: 'error', msg: 'Faculty with this employee ID already exists' })
+            return
+          }
+        } catch (err) {
+          setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to verify registration' })
+          return
+        }
+      }
+
+      if (isStudent && step === 7 && !governmentSponsored) {
+        try {
+          const receiptCheck = await axios.get('/api/payment/validate-advance', {
+            params: {
+              rollNumber: form.registerNumber,
+              receiptNumber: advanceReceiptNumber
+            }
+          })
+          if (!receiptCheck.data?.valid) {
+            setAdvanceReceiptValidationError('Receipt number could not be verified. Please check the office receipt number and try again.')
+            setToast({ type: 'error', msg: 'Receipt number could not be verified' })
+            return
+          }
+          setAdvanceReceiptValidationError('')
+        } catch (err) {
+          const message = err.response?.data?.message || 'Receipt number could not be verified'
+          setAdvanceReceiptValidationError(message)
+          setToast({ type: 'error', msg: message })
+          return
+        }
+      }
+
+      setStep(s => s + 1)
+    } finally {
+      setCheckingNext(false)
     }
   }
 
@@ -719,7 +879,7 @@ export default function Registration() {
       {/* Fallback if step is out of range */}
       {(step < 1 || step > (isStudent ? 9 : 6)) && (
         <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--accent-rose)' }}>
-          Error: Invalid step. Please refresh the page.
+          
         </div>
       )}
 
@@ -733,7 +893,7 @@ export default function Registration() {
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '400px', margin: '0 auto' }}>
               {[
-                { val: 'phase_i', label: 'Phase I Allocation', icon: '📚', desc: '2nd to 5th Year' },
+                { val: 'phase_i', label: 'Phase I Allocation', icon: '📚', desc: '2nd to 5th Year (Kindly PAY the advance of Rs. 5000 BEFORE CLICKING on this link)' },
                 {
                   val: 'phase_ii',
                   label: 'Phase II Allocation',
@@ -779,24 +939,30 @@ export default function Registration() {
           <div className="card" style={{ padding: '2rem' }}>
             <div className="section-title">🔢 Enter Your Register Number</div>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-              Enter your 12-digit register number. The office must have recorded your advance payment before you can proceed.
+              Enter your 12-digit register number. 
             </p>
             <div className="form-group">
               <label>Register Number *</label>
-              <input
+                <input
                 className="form-control"
                 name="registerNumber"
                 value={form.registerNumber}
                 onChange={handleChange}
-                placeholder="e.g. 7155XXXXXXXX"
+                  placeholder="e.g. 7155XXXXXXXX or 7158XXXXXXXX"
                 maxLength={12}
                 style={{ fontSize: '1.1rem', letterSpacing: '1px' }}
               />
-              {form.registerNumber.length > 0 && form.registerNumber.length < 12 && (
-                <small style={{ color: 'var(--accent-amber)', marginTop: '0.25rem', display: 'block' }}>
-                  12 digits required, starting with 7155
-                </small>
-              )}
+              {form.registerNumber.length > 0 && (() => {
+                const validation = validateRegisterNumber(form.registerNumber)
+                if (!validation.valid) {
+                  return (
+                    <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
+                      Register Number must be 12 digits and start with 7155 or 7158. Year code (positions 5-6) must be one of 22, 23, 24, 25.
+                    </small>
+                  )
+                }
+                return null
+              })()}
             </div>
             {form.registerNumber.length === 12 && !rollNumberVerified && (
               <button className="btn btn-primary" style={{ width: '100%' }} disabled={verifyingRoll}
@@ -813,6 +979,10 @@ export default function Registration() {
                     if (res.data.alreadyRegistered) {
                       setToast({ type: 'error', msg: '❌ You have already registered. Cannot register again.' })
                       setTimeout(() => navigate('/'), 3000)
+                    } else if (res.data.governmentSponsored) {
+                      setGovernmentSponsored(true)
+                      setRollNumberVerified(true)
+                      setToast({ type: 'success', msg: '✅ Government Sponsored — no advance payment required' })
                     } else if (res.data.advancePaid) {
                       setRollNumberVerified(true)
                       setToast({ type: 'success', msg: '✅ Advance payment verified!' })
@@ -880,32 +1050,37 @@ export default function Registration() {
                   name={isStudent ? 'registerNumber' : 'employeeId'}
                   value={isStudent ? form.registerNumber : form.employeeId} 
                   onChange={handleChange}
-                  placeholder={isStudent ? 'e.g. 7155XXXXXXXX' : 'e.g. AXXXX'}
+                  placeholder={isStudent ? 'e.g. 7155XXXXXXXX or 7158XXXXXXXX' : 'e.g. I1234 or A1234'}
                   maxLength={isStudent ? 12 : undefined}
+                  inputMode={isEmployee ? 'text' : undefined}
+                  autoCapitalize="off"
                   readOnly={isStudent}
                   style={isStudent ? { background: 'var(--bg-secondary)', cursor: 'not-allowed' } : {}}
                 />
+                {isEmployee && isFaculty && form.employeeId && !isValidEmployeeId(form.employeeId) && (
+                  <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
+                    ❌ Faculty ID must start with 'I' or 'A' followed by 4 digits (e.g. I1234 or A5678)
+                  </small>
+                )}
                 {isStudent && form.registerNumber.length > 0 && form.registerNumber.length < 12 && (
                   <small style={{ color: 'var(--accent-amber)', marginTop: '0.25rem', display: 'block' }}>
-                    12 digits required, starting with 7155
+                    12 digits required, starting with 7155 or 7158
                   </small>
                 )}
               </div>
               {isEmployee && (
                 <div className="form-group">
                   <label>Designation *</label>
-                  <input
+                  <select
                     className="form-control"
                     name="designation"
-                    list="designation-list"
                     value={form.designation}
                     onChange={handleChange}
-                    placeholder="Search designation..."
                     style={form.designation && !DESIGNATIONS.includes(form.designation) ? { borderColor: 'var(--accent-rose)' } : {}}
-                  />
-                  <datalist id="designation-list">
-                    {(form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS : STAFF_DESIGNATIONS).map(d => <option key={d} value={d} />)}
-                  </datalist>
+                  >
+                    <option value="">Select Designation</option>
+                    {(form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS : STAFF_DESIGNATIONS).map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
                   {form.designation && !(form.employeeType === 'faculty' ? FACULTY_DESIGNATIONS.includes(form.designation) : STAFF_DESIGNATIONS.includes(form.designation)) && (
                     <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
                       ❌ Please select a designation from the list
@@ -961,19 +1136,20 @@ export default function Registration() {
 
             <div className="form-row">
               <div className="form-group">
-                <label>Department *</label>
-                <select className="form-control" name="department" value={form.department} onChange={handleChange}>
-                  <option value="">Select Department</option>
-                  {(isStudent ? STUDENT_DEPARTMENTS : FACULTY_DEPARTMENTS).map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
                 <label>Institution *</label>
                 <select className="form-control" name="institution" value={form.institution} onChange={handleChange}>
                   <option value="PSG iTech">PSG iTech</option>
                   <option value="PSG IAP">PSG IAP</option>
                 </select>
               </div>
+              <div className="form-group">
+                <label>Department *</label>
+                <select className="form-control" name="department" value={form.department} onChange={handleChange}>
+                  <option value="">Select Department</option>
+                  {visibleDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              
             </div>
             <div className="form-group">
               <label>Address *</label>
@@ -981,7 +1157,21 @@ export default function Registration() {
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label>Pincode *</label>                <input className="form-control" name="pincode" value={form.pincode} onChange={handleChange} maxLength={6} />
+                <label>Pincode *</label>
+                <input
+                  className="form-control"
+                  name="pincode"
+                  value={form.pincode}
+                  onChange={e => setForm({ ...form, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                  inputMode="numeric"
+                  maxLength={6}
+                  minLength={6}
+                />
+                {form.pincode && !isValidPincode(form.pincode) && (
+                  <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
+                    ❌ Pincode must be exactly 6 digits
+                  </small>
+                )}
               </div>
 
               <div className="form-group">
@@ -1009,11 +1199,37 @@ export default function Registration() {
             <div className="form-row">
               <div className="form-group">
                 <label>Phone Number *</label>
-                <input className="form-control" name="phoneNumber" value={form.phoneNumber} onChange={handleChange} maxLength={10} />
+                <input
+                  className="form-control"
+                  name="phoneNumber"
+                  value={form.phoneNumber}
+                  onChange={e => setForm({ ...form, phoneNumber: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                  inputMode="numeric"
+                  maxLength={10}
+                  minLength={10}
+                />
+                {form.phoneNumber && !isValidPhone(form.phoneNumber) && (
+                  <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
+                    ❌ Phone number must be 10 digits
+                  </small>
+                )}
               </div>
               <div className="form-group">
                 <label>Emergency Phone *</label>
-                <input className="form-control" name="emergencyPhoneNumber" value={form.emergencyPhoneNumber} onChange={handleChange} maxLength={10} />
+                <input
+                  className="form-control"
+                  name="emergencyPhoneNumber"
+                  value={form.emergencyPhoneNumber}
+                  onChange={e => setForm({ ...form, emergencyPhoneNumber: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                  inputMode="numeric"
+                  maxLength={10}
+                  minLength={10}
+                />
+                {form.emergencyPhoneNumber && !isValidPhone(form.emergencyPhoneNumber) && (
+                  <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
+                    ❌ Emergency phone must be 10 digits
+                  </small>
+                )}
               </div>
             </div>
           </div>
@@ -1072,55 +1288,49 @@ export default function Registration() {
                   {routesLoadError}
                 </div>
               )}
-              {routes.flatMap(route => 
-                route.stops
-                  .filter(stop => stop.name.toLowerCase().includes(searchStop.toLowerCase()))
-                  .map(stop => (
-                  <div 
-                    key={`${route.routeId}-${stop.name}`}
-                    className={`route-option ${selectedStop?.name === stop.name ? 'selected' : ''}`}
-                    onClick={() => selectStop(stop, route.routeId)}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '0.75rem 1rem',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      backgroundColor: selectedStop?.name === stop.name ? 'var(--accent-blue)' : 'var(--bg-secondary)',
-                      color: selectedStop?.name === stop.name ? 'white' : 'var(--text-primary)',
-                      transition: 'all 0.2s ease',
-                      border: selectedStop?.name === stop.name ? '2px solid var(--accent-blue)' : '1px solid transparent'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (selectedStop?.name !== stop.name) {
-                        e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedStop?.name !== stop.name) {
-                        e.currentTarget.style.backgroundColor = 'var(--bg-secondary)';
-                      }
-                    }}
-                  >
-                    <span style={{ flex: 1, fontWeight: 500 }}>{stop.name}</span>
-                    <span style={{ 
-                      textAlign: 'right', 
-                      display: 'flex', 
-                      gap: '1rem',
-                      alignItems: 'center'
-                    }}>
-                      <span style={{ fontWeight: 600, minWidth: '80px' }}>₹ {stop.fees}</span>
-                      <span style={{ fontWeight: 600, minWidth: '60px' }}>{stop.time}</span>
-                    </span>
-                  </div>
-                ))
-              )}
-              {routes.flatMap(route => 
-                route.stops.filter(stop => stop.name.toLowerCase().includes(searchStop.toLowerCase()))
-              ).length === 0 && (
+              {filteredBoardingPoints.map(stop => (
+                <div 
+                  key={stop.name}
+                  className={`route-option ${selectedStop?.name === stop.name ? 'selected' : ''}`}
+                  onClick={() => selectStop(stop, stop.routeId)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    backgroundColor: selectedStop?.name === stop.name ? 'var(--accent-blue)' : 'var(--bg-secondary)',
+                    color: selectedStop?.name === stop.name ? 'white' : 'var(--text-primary)',
+                    transition: 'all 0.2s ease',
+                    border: selectedStop?.name === stop.name ? '2px solid var(--accent-blue)' : '1px solid transparent'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (selectedStop?.name !== stop.name) {
+                      e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedStop?.name !== stop.name) {
+                      e.currentTarget.style.backgroundColor = 'var(--bg-secondary)';
+                    }
+                  }}
+                >
+                  <span style={{ flex: 1, fontWeight: 500 }}>{stop.name}</span>
+                  <span style={{ 
+                    textAlign: 'right', 
+                    display: 'flex', 
+                    gap: '1rem',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{ fontWeight: 600, minWidth: '80px' }}>₹ {stop.fees}</span>
+                    <span style={{ fontWeight: 600, minWidth: '60px' }}>{stop.time}</span>
+                  </span>
+                </div>
+              ))}
+              {filteredBoardingPoints.length === 0 && (
                 <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  No bus stops found matching "{searchStop}"
+                  No boarding points found matching "{searchStop}"
                 </div>
               )}
             </div>
@@ -1141,7 +1351,7 @@ export default function Registration() {
                   {selectedStop.name} — {selectedStop.time}
                 </div>
                 <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                  Annual Fee: ₹{getFinalFee().toLocaleString()}
+                  Annual Fee: ₹ {getFinalFee().toLocaleString()}
                 </div>
               </div>
             )}
@@ -1153,97 +1363,101 @@ export default function Registration() {
       {isStudent && step === 7 && (
         <div className="reg-form slide-up">
           <div className="card">
-            <div className="section-title">💳 Advance Payment</div>
-            {!advanceDecision ? (
-              <>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                  Have you already paid the advance amount of ₹5,000 at the office?
-                </p>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" onClick={() => setAdvanceDecision('yes')}>
-                    Yes, I have paid
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => navigate('/')}>
-                    No, take me home
-                  </button>
-                </div>
-              </>
+            <div className="section-title">Advance Payment</div>
+            {governmentSponsored ? (
+              <div style={{ padding: '1.25rem', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(5,150,105,0.12)', borderRadius: '8px', marginBottom: '1rem' }}>
+                <div style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>Government Sponsored Scholarship</div>
+                <div style={{ color: 'var(--text-muted)' }}>You are exempt from the ₹5,000 advance payment and need not upload any receipt.</div>
+              </div>
             ) : (
-              <>
+              <div style={{
+                background: 'linear-gradient(135deg, #3b82f615 0%, #1e40af30 100%)',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                borderRadius: '8px',
+                padding: '1rem',
+                marginBottom: '1.5rem'
+              }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Enter the advance payment receipt details.
+                </div>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Receipt Number from Office {governmentSponsored ? '' : '*'}</label>
+              <input
+                className="form-control"
+                placeholder="e.g., 0018"
+                value={advanceReceiptNumber}
+                onChange={(e) => {
+                  setAdvanceReceiptNumber(e.target.value)
+                  if (advanceReceiptValidationError) setAdvanceReceiptValidationError('')
+                }}
+                disabled={governmentSponsored}
+              />
+              {advanceReceiptValidationError && !governmentSponsored && (
+                <small style={{ color: 'var(--accent-rose)', marginTop: '0.35rem', display: 'block', fontWeight: 600 }}>
+                  {advanceReceiptValidationError}
+                </small>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label>Upload Receipt PDF {governmentSponsored ? '' : '*'}</label>
+              {governmentSponsored ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No receipt required for government sponsored students.</div>
+              ) : (
                 <div style={{
-                  background: 'linear-gradient(135deg, #3b82f615 0%, #1e40af30 100%)',
-                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                  border: '2px dashed var(--accent-blue)',
                   borderRadius: '8px',
-                  padding: '1rem',
-                  marginBottom: '1.5rem'
+                  padding: '2rem',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  backgroundColor: 'var(--bg-glass)'
                 }}>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    Enter the advance payment receipt details only if you have already paid.
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Receipt Number from Office *</label>
-                  <input className="form-control" placeholder="e.g., RCP-2026-00123" value={advanceReceiptNumber} onChange={(e) => setAdvanceReceiptNumber(e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label>Date of Payment *</label>
-                  <input className="form-control" type="date" value={advancePaymentDate} onChange={(e) => setAdvancePaymentDate(e.target.value)} max={new Date().toISOString().split('T')[0]} />
-                </div>
-                <div className="form-group">
-                  <label>Upload Receipt PDF *</label>
-                  <div style={{
-                    border: '2px dashed var(--accent-blue)',
-                    borderRadius: '8px',
-                    padding: '2rem',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    backgroundColor: 'var(--bg-glass)'
-                  }}>
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={(e) => {
-                        if (e.target.files?.[0]) {
-                          const file = e.target.files[0]
-                          const fileBaseName = file.name.replace(/\.pdf$/i, '')
-                          if (fileBaseName !== form.registerNumber.trim()) {
-                            setToast({ type: 'error', msg: `PDF filename must be exactly: ${form.registerNumber}.pdf` })
-                            return
-                          }
-                          if (file.type === 'application/pdf') {
-                            setAdvanceReceiptFile(file)
-                          } else {
-                            setToast({ type: 'error', msg: 'Please select a PDF file' })
-                          }
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        const file = e.target.files[0]
+                        const fileBaseName = file.name.replace(/\.pdf$/i, '')
+                        if (fileBaseName !== form.registerNumber.trim()) {
+                          setToast({ type: 'error', msg: `PDF filename must be exactly: ${form.registerNumber}.pdf` })
+                          return
                         }
-                      }}
-                      style={{ display: 'none' }}
-                      id="advance-pdf-upload"
-                    />
-                    <label htmlFor="advance-pdf-upload" style={{ cursor: 'pointer', display: 'block' }}>
-                      <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📄</div>
-                      <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
-                        {advanceReceiptFile ? '✓ ' + advanceReceiptFile.name : 'Click to upload or drag & drop'}
-                      </div>
-                      <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        Filename must be: {form.registerNumber}.pdf
-                      </div>
-                    </label>
-                  </div>
-                </div>
-                {advanceReceiptFile && advanceReceiptNumber && advancePaymentDate && (
-                  <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: 'var(--bg-glass)', border: '2px solid var(--accent-emerald)', borderRadius: '8px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.5rem 1rem', fontSize: '0.9rem' }}>
-                      <span style={{ fontWeight: 600 }}>Receipt #:</span>
-                      <span>{advanceReceiptNumber}</span>
-                      <span style={{ fontWeight: 600 }}>Date Paid:</span>
-                      <span>{new Date(advancePaymentDate).toLocaleDateString()}</span>
-                      <span style={{ fontWeight: 600 }}>Advance Paid:</span>
-                      <span>₹{getAdvanceAmount().toLocaleString()}</span>
+                        if (file.type === 'application/pdf') {
+                          setAdvanceReceiptFile(file)
+                        } else {
+                          setToast({ type: 'error', msg: 'Please select a PDF file' })
+                        }
+                      }
+                    }}
+                    style={{ display: 'none' }}
+                    id="advance-pdf-upload"
+                  />
+                  <label htmlFor="advance-pdf-upload" style={{ cursor: 'pointer', display: 'block' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📄</div>
+                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
+                      {advanceReceiptFile ? '✓ ' + advanceReceiptFile.name : 'Click to upload or drag & drop'}
                     </div>
-                  </div>
-                )}
-              </>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      Filename must be: {form.registerNumber}.pdf
+                    </div>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {(!governmentSponsored && advanceReceiptFile && advanceReceiptNumber) && !advanceReceiptValidationError && (
+              <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: 'var(--bg-glass)', border: '2px solid var(--accent-emerald)', borderRadius: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.5rem 1rem', fontSize: '0.9rem' }}>
+                  <span style={{ fontWeight: 600 }}>Receipt #:</span>
+                  <span>{advanceReceiptNumber}</span>
+                  <span style={{ fontWeight: 600 }}>Advance Paid:</span>
+                  <span>₹ {getAdvanceAmount().toLocaleString()}</span>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -1274,12 +1488,11 @@ export default function Registration() {
                   ['Emergency Phone', form.emergencyPhoneNumber],
                   ['Email', form.mailId],
                   ['Boarding Point', selectedStop?.name],
-                  ['Route', routes.find(r => r.routeId === selectedRoute)?.routeNumber + ' — ' + routes.find(r => r.routeId === selectedRoute)?.routeName],
-                  ['Total Amount', `₹${getFinalFee().toLocaleString()}`],
-                  ['Advance Paid', `₹${getAdvanceAmount().toLocaleString()}`],
-                  ['Payable Amount', `₹${getPayableAmount().toLocaleString()}`],
-                  isStudent ? ['Advance Receipt #', advanceReceiptNumber || 'N/A'] : null,
-                  isStudent ? ['Advance Paid On', advancePaymentDate ? new Date(advancePaymentDate).toLocaleDateString() : 'N/A'] : null
+                  ['Route', routes.find(r => r.routeId === selectedRoute)?.routeNumber],
+                  ['Total Amount', `₹ ${getFinalFee().toLocaleString()}`],
+                  ['Advance Paid', `₹ ${getAdvanceAmount().toLocaleString()}`],
+                  ['Payable Amount', `₹ ${getPayableAmount().toLocaleString()}`],
+                  isStudent && governmentSponsored ? ['Scholarship', 'Government Sponsored Scholarship'] : (isStudent ? ['Advance Receipt #', advanceReceiptNumber || 'N/A'] : null),
                 ].filter(Boolean).map(([k, v]) => (
                   <tr key={k}>
                     <td style={{ padding: '8px 12px', color: 'var(--text-muted)', width: '35%', fontSize: '0.85rem' }}>{k}</td>
@@ -1307,7 +1520,7 @@ export default function Registration() {
               <p style={{ color: 'var(--accent-amber)', fontSize: '0.9rem' }}>Phase {result.phase} allocation</p>
             )}
             <p style={{ color: 'var(--accent-emerald)', fontWeight: 600, marginTop: '1rem' }}>
-              Annual Fee: ₹{result.finalFees?.toLocaleString()}
+              Annual Fee: ₹ {result.finalFees?.toLocaleString()}
             </p>
             <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
               <button className="btn btn-secondary" onClick={() => navigate('/')}>Back to Home</button>
@@ -1322,8 +1535,8 @@ export default function Registration() {
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
             {step > 1 && !(isStudent && step === 2) && <button className="btn btn-secondary" onClick={() => setStep(s => s - 1)}>← Back</button>}
             {(isStudent ? step < 8 && step !== 2 : step < 5) && (
-              <button className="btn btn-primary" disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
-                Next →
+              <button className="btn btn-primary" disabled={!canNext() || checkingNext} onClick={handleNext}>
+                {checkingNext ? 'Checking...' : 'Next →'}
               </button>
             )}
             {(isStudent ? step === 8 : step === 5) && !otpSent && (

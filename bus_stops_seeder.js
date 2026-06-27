@@ -32,6 +32,57 @@ const routes = [
   },
   {
     routeNumber: 'R3',
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
     routeName: 'Peelamedu (NEW)',
     capacity: 55,
     stops: [

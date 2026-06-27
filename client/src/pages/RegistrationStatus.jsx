@@ -35,7 +35,7 @@ export default function RegistrationStatus() {
             <label>Register Number / Employee ID</label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <input className="form-control" value={query} onChange={e => setQuery(e.target.value)}
-                placeholder="e.g. 7155XXXXXXXX" onKeyDown={e => e.key === 'Enter' && lookup()} />
+                placeholder="e.g. 715XXXXXXXXX" onKeyDown={e => e.key === 'Enter' && lookup()} />
               <button className="btn btn-primary" onClick={lookup}>Search</button>
             </div>
           </div>
@@ -60,11 +60,11 @@ export default function RegistrationStatus() {
                     ['Department', data.department],
                     ['Institution', data.institution],
                     ['Boarding Point', data.boardingPoint],
-                    ['Route', data.boardingPointRoute ? `${data.boardingPointRoute.routeNumber} — ${data.boardingPointRoute.routeName}` : '—'],
-                    ['Fee', `₹${data.finalFees?.toLocaleString() || '—'}`],
+                    ['Route', data.boardingPointRoute ? data.boardingPointRoute.routeNumber : '—'],
+                    ['Fee', `₹ ${data.finalFees?.toLocaleString() || '—'}`],
                     ['Phase', data.phase],
                     ['Advance Paid', data.advancePaid ? '✅ Yes' : '❌ No'],
-                    data.allocatedRoute ? ['Allocated Route', `${data.allocatedRoute.routeNumber} — ${data.allocatedRoute.routeName}`] : null
+                    data.allocatedRoute ? ['Allocated Route', data.allocatedRoute.routeNumber] : null
                   ].filter(Boolean).map(([k, v]) => (
                     <tr key={k}>
                       <td style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{k}</td>

@@ -12,16 +12,19 @@ export default function AdminDashboard() {
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
   const [routes, setRoutes] = useState([])
+  const [activeTab, setActiveTab] = useState('operations')
   const [expandedRoute, setExpandedRoute] = useState(null)
   const [modal, setModal] = useState(null) // { stopName, routeId, registrations }
   const [toast, setToast] = useState(null)
   const [swapData, setSwapData] = useState({ stopName: '', fromRouteId: '', toRouteId: '' })
   const [bulkRolls, setBulkRolls] = useState('')
+  const [bulkParseErrors, setBulkParseErrors] = useState([])
   const [paymentTab, setPaymentTab] = useState('manual')
   const [manualRoll, setManualRoll] = useState('')
-  const [credRoll, setCredRoll] = useState('')
-  const [credUsername, setCredUsername] = useState('')
-  const [credPassword, setCredPassword] = useState('')
+  const [advancePayments, setAdvancePayments] = useState([])
+  const [advancePaymentSearch, setAdvancePaymentSearch] = useState('')
+  const [loadingAdvancePayments, setLoadingAdvancePayments] = useState(false)
+  const [editingAdvancePayment, setEditingAdvancePayment] = useState(null)
   const [allocMode, setAllocMode] = useState('all')
   const [allocRoute, setAllocRoute] = useState('')
   const [loading, setLoading] = useState(true)
@@ -34,6 +37,21 @@ export default function AdminDashboard() {
   const [routeViewType, setRouteViewType] = useState('allocated')
   const [routeViewData, setRouteViewData] = useState([])
   const [selectedCommuterId, setSelectedCommuterId] = useState(null)
+  const sortedRoutes = [...routes].sort((a, b) => a.routeName.localeCompare(b.routeName, undefined, { numeric: true, sensitivity: 'base' }))
+  const totalRegistrations = stats?.totalRegistrations || 0
+  const globalFacultyPercent = totalRegistrations ? Math.round(((stats?.facultyCount || 0) / totalRegistrations) * 100) : 0
+  const globalStaffPercent = totalRegistrations ? Math.round(((stats?.staffCount || 0) / totalRegistrations) * 100) : 0
+  const globalStudentPercent = totalRegistrations ? Math.round(((stats?.studentTotal || 0) / totalRegistrations) * 100) : 0
+  const globalYearSplit = [1, 2, 3, 4, 5].map(year => {
+    const count = stats?.studentsByYear?.[`year${year}`] || 0
+    const percent = stats?.studentTotal ? Math.round((count / stats.studentTotal) * 100) : 0
+    return { year, count, percent }
+  })
+  const adminTabs = [
+    { id: 'operations', label: 'Operations' },
+    { id: 'suggestions', label: 'Suggestions' },
+    { id: 'payments', label: 'Advance & Final Payment' }
+  ]
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4000) }
 
@@ -108,11 +126,35 @@ export default function AdminDashboard() {
   }
 
   const [refundModal, setRefundModal] = useState(null)
+  const [suggestionsModal, setSuggestionsModal] = useState(null)
+  const [suggestionsList, setSuggestionsList] = useState([])
   const viewRefunds = async () => {
     try {
       const res = await api.get('/api/admin/registrations?status=rejected_refund&limit=1000')
       setRefundModal(res.data.registrations)
     } catch(err) { showToast('error', 'Failed to fetch refund candidates') }
+  }
+
+  const fetchSuggestions = async () => {
+    try {
+      const res = await api.get('/api/admin/suggestions')
+      setSuggestionsList(res.data)
+      setSuggestionsModal(true)
+    } catch (err) { showToast('error', 'Failed to fetch suggestions') }
+  }
+
+  const downloadSuggestionsCSV = async () => {
+    try {
+      const res = await api.get('/api/admin/suggestions/export', { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'suggestions.csv'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) { showToast('error', 'Failed to download CSV') }
   }
 
   const handleSwap = async () => {
@@ -133,37 +175,75 @@ export default function AdminDashboard() {
       await api.post('/api/payment/confirm-manual', { rollNumber: manualRoll, confirmedBy: 'Admin' })
       showToast('success', `Payment confirmed for ${manualRoll}`)
       setManualRoll('')
+      loadAdvancePayments()
     } catch (err) { showToast('error', err.response?.data?.message || 'Failed') }
   }
 
   const bulkConfirm = async () => {
-    const rolls = bulkRolls.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean)
-    if (!rolls.length) return
+    const lines = bulkRolls.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    const entries = []
+    const errors = []
+
+    lines.forEach((line, index) => {
+      const parts = line.split(',').map(s => s.trim()).filter(Boolean)
+      if (parts.length === 0 || parts.length > 2) {
+        errors.push(`Line ${index + 1}: use roll number or roll number,receipt number`)
+        return
+      }
+
+      const [rollNumber, receiptNumber = ''] = parts
+      if (!rollNumber) {
+        errors.push(`Line ${index + 1}: roll number is required`)
+        return
+      }
+
+      entries.push({ rollNumber, receiptNumber })
+    })
+
+    setBulkParseErrors(errors)
+    if (!entries.length) return
+
     try {
-      const res = await axios.post('/api/payment/bulk-confirm', { rollNumbers: rolls, confirmedBy: 'Admin' },
+      const res = await axios.post('/api/payment/bulk-confirm', { entries, confirmedBy: 'Admin' },
         { headers: { Authorization: `Bearer ${localStorage.getItem('adminToken')}` } })
       showToast('success', res.data.message)
       setBulkRolls('')
+      setBulkParseErrors([])
+      loadAdvancePayments()
     } catch (err) { showToast('error', err.response?.data?.message || 'Failed') }
   }
 
-  const saveCredentials = async () => {
-    if (!credRoll || !credUsername || !credPassword) {
-      showToast('error', 'Enter roll/staff ID, username, and password')
-      return
-    }
+  const loadAdvancePayments = async () => {
+    setLoadingAdvancePayments(true)
     try {
-      const res = await api.post('/api/admin/credentials', {
-        rollNumber: credRoll,
-        loginUsername: credUsername,
-        password: credPassword
+      const params = new URLSearchParams({ status: 'confirmed', limit: '100' })
+      if (advancePaymentSearch.trim()) {
+        params.append('search', advancePaymentSearch.trim())
+      }
+      const res = await api.get(`/api/admin/payments?${params.toString()}`)
+      setAdvancePayments(res.data || [])
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to load advance payments')
+    } finally {
+      setLoadingAdvancePayments(false)
+    }
+  }
+
+  const saveAdvancePayment = async () => {
+    if (!editingAdvancePayment) return
+    try {
+      const res = await api.put(`/api/admin/payments/${editingAdvancePayment._id}`, {
+        name: editingAdvancePayment.name,
+        rollNumber: editingAdvancePayment.rollNumber,
+        receiptNumber: editingAdvancePayment.receiptNumber,
+        paymentDate: editingAdvancePayment.paymentDate
       })
       showToast('success', res.data.message)
-      setCredRoll('')
-      setCredUsername('')
-      setCredPassword('')
+      setEditingAdvancePayment(null)
+      loadAdvancePayments()
+      fetchData()
     } catch (err) {
-      showToast('error', err.response?.data?.message || 'Failed to save credentials')
+      showToast('error', err.response?.data?.message || 'Failed to update advance payment')
     }
   }
 
@@ -282,7 +362,49 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Allocation & Swap Controls */}
+      <div className="admin-tab-bar">
+        {adminTabs.map(tab => (
+          <button
+            key={tab.id}
+            className={`admin-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {stats && (
+        <div className="card-grid cols-3" style={{ marginBottom: '1.5rem' }}>
+          <div className="card">
+            <h3 style={{ marginBottom: '0.75rem' }}>Global Split</h3>
+            <div className="metric-list">
+              <div><strong>Students</strong> {stats.studentTotal} ({globalStudentPercent}%)</div>
+              <div><strong>Faculty</strong> {stats.facultyCount} ({globalFacultyPercent}%)</div>
+              <div><strong>Staff</strong> {stats.staffCount} ({globalStaffPercent}%)</div>
+            </div>
+          </div>
+          <div className="card">
+            <h3 style={{ marginBottom: '0.75rem' }}>Year Split</h3>
+            <div className="metric-list">
+              {globalYearSplit.map(item => (
+                <div key={item.year}>Y{item.year}: {item.count} ({item.percent}%)</div>
+              ))}
+            </div>
+          </div>
+          <div className="card">
+            <h3 style={{ marginBottom: '0.75rem' }}>Quick View</h3>
+            <div className="metric-list">
+              <div><strong>Routes</strong> {stats.totalRoutes}</div>
+              <div><strong>Seats Used</strong> {stats.allocatedCount}/{stats.totalCapacity}</div>
+              <div><strong>Advance Paid</strong> {stats.paidCount}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'operations' && (
+      <>
       <div className="card-grid cols-2" style={{ marginBottom: '1.5rem' }}>
         <div className="card">
           <h3 style={{ marginBottom: '1rem' }}>⚡ Seat Allocation</h3>
@@ -298,7 +420,7 @@ export default function AdminDashboard() {
               <label>Select Route</label>
               <select className="form-control" value={allocRoute} onChange={e => setAllocRoute(e.target.value)}>
                 <option value="">Select...</option>
-                {routes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+                {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
               </select>
             </div>
           )}
@@ -328,7 +450,7 @@ export default function AdminDashboard() {
             <label>From Route</label>
             <select className="form-control" value={swapData.fromRouteId} onChange={e => setSwapData({ ...swapData, fromRouteId: e.target.value, stopName: '' })}>
               <option value="">Select source route...</option>
-              {routes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+              {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -352,6 +474,166 @@ export default function AdminDashboard() {
           <button className="btn btn-secondary" onClick={handleSwap}>Move Stop →</button>
         </div>
       </div>
+
+      <h2 style={{ margin: '0 0 1rem' }}>🗺️ Routes Overview</h2>
+      {routes.map(route => (
+        <div key={route._id} className="card route-card">
+          <div className="route-card-header" onClick={() => setExpandedRoute(expandedRoute === route._id ? null : route._id)}>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <span><span style={{ color: 'var(--accent-blue)' }}>{route.routeNumber}</span> {route.routeName}</span>
+                <span className={`route-badge ${route.occupancyPercent >= 90 ? 'full' : route.occupancyPercent >= 50 ? 'partial' : 'empty'}`}>
+                  {route.occupancyPercent}% full
+                </span>
+                <button className="btn btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={(e) => { e.stopPropagation(); setEditRoute(route) }}>Edit Stops</button>
+              </h3>
+            </div>
+            <span style={{ color: 'var(--text-muted)', marginLeft: '1rem' }}>
+              {route.totalRegistered}/{route.capacity} • {expandedRoute === route._id ? '▲' : '▼'}
+            </span>
+          </div>
+
+          <div style={{ padding: '0 1.5rem' }}>
+            <div className="occupancy-bar">
+              <div className="segment faculty" style={{ width: `${route.facultyPercent}%` }} />
+              <div className="segment staff" style={{ width: `${route.staffPercent}%` }} />
+              <div className="segment student" style={{ width: `${route.studentPercent}%` }} />
+            </div>
+            <div className="route-meta">
+              <span><span className="dot" style={{ background: 'var(--accent-blue)' }} /> Faculty: {route.commuterSplit?.faculty?.count ?? route.facultyCount} ({route.commuterSplit?.faculty?.percentOfCapacity ?? route.facultyPercent}% seats, {route.commuterSplit?.faculty?.percentOfCommuters ?? 0}% commuters)</span>
+              <span><span className="dot" style={{ background: 'var(--accent-purple)' }} /> Staff: {route.commuterSplit?.staff?.count ?? route.staffCount} ({route.commuterSplit?.staff?.percentOfCapacity ?? route.staffPercent}% seats, {route.commuterSplit?.staff?.percentOfCommuters ?? 0}% commuters)</span>
+              <span><span className="dot" style={{ background: 'var(--accent-emerald)' }} /> Students: {route.commuterSplit?.students?.count ?? route.studentTotal} ({route.commuterSplit?.students?.percentOfCapacity ?? route.studentPercent}% seats, {route.commuterSplit?.students?.percentOfCommuters ?? 0}% commuters)</span>
+            </div>
+          </div>
+
+          {expandedRoute === route._id && (
+            <div style={{ padding: '0 1.5rem 1.5rem' }}>
+              <table className="stop-table">
+                <thead>
+                  <tr>
+                    <th>Stop</th><th>Time</th><th>Fee</th><th>Total</th>
+                    <th>Faculty</th><th>Staff</th><th>Students</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {route.stops.map(stop => (
+                    <tr key={stop.name}>
+                      <td style={{ fontWeight: 600 }}>{stop.name}</td>
+                      <td>{stop.time}</td>
+                      <td>₹{stop.fees.toLocaleString()}</td>
+                      <td><strong>{stop.totalCount}</strong></td>
+                      <td>{stop.facultyCount}</td>
+                      <td>{stop.staffCount}</td>
+                      <td>{stop.studentCount}</td>
+                      <td><button className="view-btn" onClick={() => viewStopPeople(route._id, stop.name)}>View People</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ marginBottom: '1rem' }}>📂 Registration Filters</h3>
+        <div className="form-row">
+          <div className="form-group">
+            <label>View</label>
+            <select className="form-control" value={filterView} onChange={e => setFilterView(e.target.value)}>
+              <option value="registered">Registered</option>
+              <option value="unregistered">Unregistered Advance Paid</option>
+              <option value="allocated">Allocated</option>
+              <option value="need-allocation">Need Allocation</option>
+              <option value="deallocated">Deallocated</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Advance Payment</label>
+            <select className="form-control" value={filterAdvancePaid} onChange={e => setFilterAdvancePaid(e.target.value)}>
+              <option value="">All</option>
+              <option value="true">Advance Paid</option>
+              <option value="false">Advance Not Paid</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Final Payment</label>
+            <select className="form-control" value={filterFinalPaid} onChange={e => setFilterFinalPaid(e.target.value)}>
+              <option value="">All</option>
+              <option value="true">Final Paid</option>
+              <option value="false">Final Not Paid</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Route</label>
+            <select className="form-control" value={filterRoute} onChange={e => setFilterRoute(e.target.value)}>
+              <option value="">All Routes</option>
+              {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+            </select>
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={loadFilteredRegistrations}>Load Filtered Data</button>
+
+        {filteredRegs.length > 0 && (
+          <div style={{ marginTop: '1rem', maxHeight: '380px', overflowY: 'auto' }}>
+            <table className="stop-table">
+              <thead>
+                <tr><th>Name</th><th>ID</th><th>Status</th><th>Advance</th><th>Final</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {filteredRegs.map(reg => (
+                  <tr key={reg._id}>
+                    <td>{reg.name}</td>
+                    <td>{reg.registerNumber || reg.employeeId}</td>
+                    <td>{reg.registrationStatus}</td>
+                    <td>{reg.advancePaid ? 'Yes' : 'No'}</td>
+                    <td>{reg.fullFeePaid ? 'Yes' : 'No'}</td>
+                    <td style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {reg.advancePaid && reg.registrationStatus !== 'allocated' && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => moveToWaitlist(reg._id)}>Waitlist</button>
+                      )}
+                      <button className="btn btn-danger btn-sm" onClick={() => deallocateUser(reg._id)}>Deallocate</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'registration')}>Send Reg Mail</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'allocation')}>Send Alloc Mail</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'deallocation')}>Send Dealloc Mail</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      </>
+      )}
+
+      {/* Suggestions */}
+      {activeTab === 'suggestions' && (
+      <div style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+          <div>
+            <h3 style={{ margin: 0 }}>📝 Route Suggestions</h3>
+            <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)' }}>View submissions or download the full list with submission date and route text.</p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary btn-lg"
+            onClick={fetchSuggestions}
+            style={{ minWidth: '220px', justifyContent: 'center' }}
+          >
+            📥 View Suggestions
+          </button>
+          <button
+            className="btn btn-secondary btn-lg"
+            onClick={downloadSuggestionsCSV}
+            style={{ minWidth: '240px', justifyContent: 'center' }}
+          >
+            ⤓ Download Suggestions
+          </button>
+        </div>
+      </div>
+      )}
 
       {/* Cancellations */}
       {cancellations.length > 0 && (
@@ -390,21 +672,13 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {false && (
+      {activeTab === 'payments' && (
         <>
-          {/* TEMPORARILY BLOCKED - Payment Confirmation */}
-          {/* Payment Confirmation - Manual Entry & Bulk Text
-              Purpose: Allow admins to confirm payments for individual students or process multiple payments at once.
-              Modes: Manual Entry (single) | Bulk Text (multiple) | Office Page (office-handled)
-          */}
           <div className="card" style={{ marginBottom: '1.5rem' }}>
             <h3 style={{ marginBottom: '1rem' }}>💰 Payment Confirmation</h3>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-              {/* Tab 1: Single payment confirmation */}
+            <div className="admin-subtabs">
               <button className={`btn ${paymentTab === 'manual' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPaymentTab('manual')}>Manual Entry</button>
-              {/* Tab 2: Batch payment confirmation */}
               <button className={`btn ${paymentTab === 'bulk' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPaymentTab('bulk')}>Bulk Text</button>
-              {/* Navigate to office payment handling page */}
               <button className="btn btn-secondary btn-sm" onClick={() => navigate('/office')}>Office Page</button>
             </div>
             {paymentTab === 'manual' ? (
@@ -414,95 +688,64 @@ export default function AdminDashboard() {
               </div>
             ) : paymentTab === 'bulk' ? (
               <div>
-                <textarea className="form-control" rows={4} placeholder="Enter roll numbers (one per line, or comma-separated)"
+                <textarea className="form-control" rows={4} placeholder="Enter one entry per line: roll number or roll number,receipt number"
                   value={bulkRolls} onChange={e => setBulkRolls(e.target.value)} />
+                {bulkParseErrors.length > 0 && (
+                  <div style={{ marginTop: '0.75rem', color: 'var(--accent-rose)', fontSize: '0.85rem' }}>
+                    {bulkParseErrors.map(error => (
+                      <div key={error}>• {error}</div>
+                    ))}
+                  </div>
+                )}
                 <button className="btn btn-success" style={{ marginTop: '0.5rem' }} onClick={bulkConfirm}>Confirm All</button>
               </div>
             ) : null}
           </div>
-        </>
-      )}
 
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginBottom: '1rem' }}>🔑 Login Credentials</h3>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}></p>
-        <div className="form-row">
-          <div className="form-group">
-            <label>Roll Number / Staff ID</label>
-            <input className="form-control" value={credRoll} onChange={e => setCredRoll(e.target.value)} placeholder="Enter ID" />
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          <div>
+            <h3 style={{ marginBottom: '0.35rem' }}>✏️ Advance Payment Editor</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted)' }}>Update the receipt number, roll number, and payment date for confirmed advance payments.</p>
           </div>
-          <div className="form-group">
-            <label>Username</label>
-            <input className="form-control" value={credUsername} onChange={e => setCredUsername(e.target.value)} placeholder="Set username" />
-          </div>
+          <button className="btn btn-primary" onClick={loadAdvancePayments} disabled={loadingAdvancePayments}>
+            {loadingAdvancePayments ? 'Loading...' : 'Load Payments'}
+          </button>
         </div>
-        <div className="form-group">
-          <label>Password</label>
-          <input className="form-control" type="text" value={credPassword} onChange={e => setCredPassword(e.target.value)} placeholder="Set or change password" />
+        <div className="form-group" style={{ maxWidth: '360px' }}>
+          <label>Search by roll number or receipt number</label>
+          <input
+            className="form-control"
+            value={advancePaymentSearch}
+            onChange={e => setAdvancePaymentSearch(e.target.value)}
+            placeholder="Enter roll number or receipt number"
+          />
         </div>
-        <button className="btn btn-primary" onClick={saveCredentials}>Save Credentials</button>
-      </div>
-
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginBottom: '1rem' }}>📂 Registration Filters</h3>
-        <div className="form-row">
-          <div className="form-group">
-            <label>View</label>
-            <select className="form-control" value={filterView} onChange={e => setFilterView(e.target.value)}>
-              <option value="registered">Registered</option>
-              <option value="allocated">Allocated</option>
-              <option value="need-allocation">Need Allocation</option>
-              <option value="deallocated">Deallocated</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Advance Payment</label>
-            <select className="form-control" value={filterAdvancePaid} onChange={e => setFilterAdvancePaid(e.target.value)}>
-              <option value="">All</option>
-              <option value="true">Advance Paid</option>
-              <option value="false">Advance Not Paid</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Final Payment</label>
-            <select className="form-control" value={filterFinalPaid} onChange={e => setFilterFinalPaid(e.target.value)}>
-              <option value="">All</option>
-              <option value="true">Final Paid</option>
-              <option value="false">Final Not Paid</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Route</label>
-            <select className="form-control" value={filterRoute} onChange={e => setFilterRoute(e.target.value)}>
-              <option value="">All Routes</option>
-              {routes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
-            </select>
-          </div>
-        </div>
-        <button className="btn btn-primary" onClick={loadFilteredRegistrations}>Load Filtered Data</button>
-
-        {filteredRegs.length > 0 && (
-          <div style={{ marginTop: '1rem', maxHeight: '380px', overflowY: 'auto' }}>
+        {advancePayments.length > 0 && (
+          <div style={{ maxHeight: '340px', overflowY: 'auto', marginTop: '1rem' }}>
             <table className="stop-table">
               <thead>
-                <tr><th>Name</th><th>ID</th><th>Status</th><th>Advance</th><th>Final</th><th>Actions</th></tr>
+                <tr><th>Roll Number</th><th>Receipt #</th><th>Date</th><th>Status</th><th>Action</th></tr>
               </thead>
               <tbody>
-                {filteredRegs.map(reg => (
-                  <tr key={reg._id}>
-                    <td>{reg.name}</td>
-                    <td>{reg.registerNumber || reg.employeeId}</td>
-                    <td>{reg.registrationStatus}</td>
-                    <td>{reg.advancePaid ? 'Yes' : 'No'}</td>
-                    <td>{reg.fullFeePaid ? 'Yes' : 'No'}</td>
-                    <td style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                      {reg.advancePaid && reg.registrationStatus !== 'allocated' && (
-                        <button className="btn btn-secondary btn-sm" onClick={() => moveToWaitlist(reg._id)}>Waitlist</button>
-                      )}
-                      <button className="btn btn-danger btn-sm" onClick={() => deallocateUser(reg._id)}>Deallocate</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'registration')}>Send Reg Mail</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'allocation')}>Send Alloc Mail</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'deallocation')}>Send Dealloc Mail</button>
+                {advancePayments.map(payment => (
+                  <tr key={payment._id}>
+                    <td>{payment.rollNumber}</td>
+                    <td>{payment.receiptNumber}</td>
+                    <td>{payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString() : '—'}</td>
+                    <td>{payment.paidStatus}</td>
+                    <td>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setEditingAdvancePayment({
+                          _id: payment._id,
+                          rollNumber: payment.rollNumber || '',
+                          receiptNumber: payment.receiptNumber || '',
+                          paymentDate: payment.paymentDate ? new Date(payment.paymentDate).toISOString().split('T')[0] : ''
+                        })}
+                      >
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -510,69 +753,15 @@ export default function AdminDashboard() {
             </table>
           </div>
         )}
+        {!loadingAdvancePayments && advancePayments.length === 0 && (
+          <p style={{ marginTop: '1rem', color: 'var(--text-muted)' }}>No advance payments loaded.</p>
+        )}
       </div>
-
-      {false && (
-        <>
-          {/* TEMPORARILY BLOCKED - Route-wise Allocation View */}
-          {/* Route-wise Allocation View
-              Purpose: View and manage student allocations for a specific route.
-              Features: Route selector | View type (allocated vs paid+unallocated) | Scrollable results table
-          */}
-          <div className="card" style={{ marginBottom: '1.5rem' }}>
-            <h3 style={{ marginBottom: '1rem' }}>🧭 Route-wise Allocation View</h3>
-            <div className="form-row">
-              <div className="form-group">
-                {/* Route selector dropdown */}
-                <label>Route</label>
-                <select className="form-control" value={routeViewRoute} onChange={e => setRouteViewRoute(e.target.value)}>
-                  <option value="">Select route</option>
-                  {routes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                {/* View type selector: allocated students or paid students waiting for allocation */}
-                <label>View Type</label>
-                <select className="form-control" value={routeViewType} onChange={e => setRouteViewType(e.target.value)}>
-                  <option value="allocated">Allocated Ones</option>
-                  <option value="need-allocation">Paid & Need Allocation</option>
-                </select>
-              </div>
-            </div>
-            {/* Load button to fetch route data */}
-            <button className="btn btn-primary" onClick={loadRouteView}>Load Route View</button>
-
-            {/* Display results table with students and allocation actions */}
-            {routeViewData.length > 0 && (
-              <div style={{ marginTop: '1rem', maxHeight: '320px', overflowY: 'auto' }}>
-                <table className="stop-table">
-                  <thead>
-                    <tr><th>Name</th><th>ID</th><th>Status</th><th>Advance</th><th>Final</th><th>Action</th></tr>
-                  </thead>
-                  <tbody>
-                    {routeViewData.map(reg => (
-                      <tr key={reg._id}>
-                        <td>{reg.name}</td>
-                        <td>{reg.registerNumber || reg.employeeId}</td>
-                        <td>{reg.registrationStatus}</td>
-                        <td>{reg.advancePaid ? 'Yes' : 'No'}</td>
-                        <td>{reg.fullFeePaid ? 'Yes' : 'No'}</td>
-                        <td>
-                          {/* Waitlist option for students needing allocation */}
-                          {routeViewType === 'need-allocation' && (
-                            <button className="btn btn-secondary btn-sm" onClick={() => moveToWaitlist(reg._id)}>Waitlist</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
         </>
       )}
 
+      {false && (
+      <>
       {/* Route Cards */}
       <h2 style={{ marginBottom: '1rem' }}>🗺️ Routes Overview</h2>
       {routes.map(route => (
@@ -643,6 +832,8 @@ export default function AdminDashboard() {
           )}
         </div>
       ))}
+      </>
+      )}
 
       {/* Modal: Edit Stops */}
       {editRoute && (
@@ -747,6 +938,33 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {editingAdvancePayment && (
+        <div className="modal-overlay" onClick={() => setEditingAdvancePayment(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px' }}>
+            <div className="modal-header">
+              <h2>Edit Advance Payment</h2>
+              <button className="modal-close" onClick={() => setEditingAdvancePayment(null)}>✕</button>
+            </div>
+            <div className="form-group">
+              <label>Roll Number *</label>
+              <input className="form-control" value={editingAdvancePayment.rollNumber} onChange={e => setEditingAdvancePayment({ ...editingAdvancePayment, rollNumber: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Receipt Number *</label>
+              <input className="form-control" value={editingAdvancePayment.receiptNumber} onChange={e => setEditingAdvancePayment({ ...editingAdvancePayment, receiptNumber: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Date of Payment *</label>
+              <input className="form-control" type="date" value={editingAdvancePayment.paymentDate} onChange={e => setEditingAdvancePayment({ ...editingAdvancePayment, paymentDate: e.target.value })} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button className="btn btn-secondary" onClick={() => setEditingAdvancePayment(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveAdvancePayment}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal: Allocation Result */}
       {allocResult && (
         <div className="modal-overlay" onClick={() => setAllocResult(null)}>
@@ -805,6 +1023,41 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {suggestionsModal && (
+        <div className="modal-overlay" onClick={() => setSuggestionsModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px' }}>
+            <div className="modal-header">
+              <h2>📝 Route Suggestions ({suggestionsList.length})</h2>
+              <button className="modal-close" onClick={() => setSuggestionsModal(null)}>✕</button>
+            </div>
+            <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+              {suggestionsList.length === 0 ? (
+                <p style={{ padding: '1rem' }}>No suggestions found.</p>
+              ) : (
+                <table className="stop-table">
+                  <thead>
+                    <tr><th>Reg/ID</th><th>Email</th><th>Route Suggestion</th><th>Date</th></tr>
+                  </thead>
+                  <tbody>
+                    {suggestionsList.map(s => (
+                      <tr key={s._id}>
+                        <td style={{ fontFamily: 'monospace' }}>{s.registerNumber}</td>
+                        <td>{s.mailId}</td>
+                        <td style={{ maxWidth: '420px', whiteSpace: 'pre-wrap' }}>{s.routeSuggestion}</td>
+                        <td>{new Date(s.createdAt).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.75rem' }}>
+              <button className="btn btn-secondary" onClick={() => setSuggestionsModal(null)}>Close</button>
+              <button className="btn btn-primary" onClick={downloadSuggestionsCSV}>Download CSV</button>
             </div>
           </div>
         </div>

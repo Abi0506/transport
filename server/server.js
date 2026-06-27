@@ -69,6 +69,7 @@ const otpRoutes = require('./routes/otp');
 const registrationRoutes = require('./routes/registration');
 const paymentRoutes = require('./routes/payment');
 const adminRoutes = require('./routes/admin');
+const suggestionRoutes = require('./routes/suggestions');
 
 [
   '/api',
@@ -79,6 +80,7 @@ const adminRoutes = require('./routes/admin');
   app.use(`${basePath}/register`, registrationRoutes);
   app.use(`${basePath}/payment`, paymentRoutes);
   app.use(`${basePath}/admin`, adminRoutes);
+  app.use(`${basePath}/suggestions`, suggestionRoutes);
 });
 
 // Health check

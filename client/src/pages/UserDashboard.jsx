@@ -120,9 +120,10 @@ export default function UserDashboard() {
   if (!user) return null
 
   const isStudent = user.userType === 'student'
-  const totalAmount = user.finalFees || 0
-  const advanceAmount = isStudent ? 5000 : 0
-  const payableAmount = isStudent ? Math.max(0, totalAmount - advanceAmount) : totalAmount
+  const isGovernmentSponsored = Boolean(user.governmentSponsored)
+  const totalAmount = isGovernmentSponsored ? 0 : (user.finalFees || 0)
+  const advanceAmount = isGovernmentSponsored ? 0 : (isStudent ? 5000 : 0)
+  const payableAmount = isGovernmentSponsored ? 0 : (isStudent ? Math.max(0, totalAmount - advanceAmount) : totalAmount)
 
   const statusColor = {
     pending: 'var(--accent-amber)', allocated: 'var(--accent-emerald)',
@@ -134,7 +135,7 @@ export default function UserDashboard() {
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 style={{ fontSize: 'clamp(1.2rem, 4vw, 2rem)' }}>Welcome, {user.name}</h1>
+          <h1 style={{ fontSize: 'clamp(1.2rem, 4vw, 2rem)' }}>Welcome, {user.name} {user.governmentSponsored && <span style={{ marginLeft: '0.75rem', fontSize: '0.8rem', padding: '4px 8px', borderRadius: '12px', background: 'rgba(16,185,129,0.12)', color: 'var(--accent-emerald)', fontWeight: 700 }}>Government Sponsored Scholarship</span>}</h1>
           <p>Dashboard & Status</p>
         </div>
       </div>
@@ -158,6 +159,7 @@ export default function UserDashboard() {
               {[
                 ['Type', user.userType.charAt(0).toUpperCase() + user.userType.slice(1)],
                 ['ID', user.registerNumber || user.employeeId],
+                isGovernmentSponsored ? ['Scholarship', 'Government Sponsored Scholarship'] : null,
                 ['Boarding Point', user.boardingPoint],
                 user.allocatedRoute ? ['Allocated Route', `${user.allocatedRoute.routeNumber}`] : null
               ].filter(Boolean).map(([k, v]) => (
@@ -172,26 +174,39 @@ export default function UserDashboard() {
 
         {/* Payment Section */}
         <div className="card">
-          <div className="section-title">💳 Payment Status</div>
+          <div className="section-title">Payment Status</div>
+
+          {isGovernmentSponsored && (
+            <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--accent-emerald)', marginBottom: '0.35rem', fontWeight: 700 }}>Government Sponsored Scholarship</div>
+              <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Your transport fees are waived. The dashboard shows a zero payable amount.</div>
+            </div>
+          )}
 
           {/* Advance Payment Details (Student only) */}
           {isStudent && (
             <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--bg-glass)', borderRadius: '12px' }}>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>Advance Payment (₹5,000)</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>{isGovernmentSponsored ? 'Advance Payment (Exempted)' : 'Advance Payment (₹5,000)'}</div>
               <div style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-                {user.advancePaid
+                {isGovernmentSponsored
+                  ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Exempted</span>
+                  : user.advancePaid
                   ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span>
                   : user.receiptFile
                     ? <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span>
                     : <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Not Paid</span>
                 }
               </div>
-              {user.advanceReceiptNumber && (
+              {isGovernmentSponsored ? (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  No advance receipt required
+                </div>
+              ) : user.advanceReceiptNumber && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   Receipt #: {user.advanceReceiptNumber}
                 </div>
               )}
-              {user.advancePaymentDate && (
+              {user.advancePaymentDate && !isGovernmentSponsored && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   Paid on: {new Date(user.advancePaymentDate).toLocaleDateString()}
                 </div>

@@ -9,22 +9,43 @@ export default function LandingPage() {
           <h1 style={{ color: 'var(--text-primary)', fontSize: '3.5rem', fontWeight: '800', letterSpacing: '-0.03em', margin: 0 }}>Transport <span style={{ color: 'var(--accent-blue)' }}>Portal</span></h1>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '1.25rem', marginBottom: '2.5rem' }}>Secure your seat for the academic year 2026–27.</p>
-        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <Link to="/register/student" className="btn btn-primary" style={{ padding: '0.8rem 1.5rem', fontSize: '1rem', borderRadius: '6px' }}>Student Registration</Link>
-          <Link to="/register/employee" className="btn btn-secondary" style={{ padding: '0.8rem 1.5rem', fontSize: '1rem', borderRadius: '6px' }}>Faculty & Staff</Link>
+        <div className="hero-actions">
+          <div className="hero-primary-actions">
+            <Link to="/register/student" className="btn btn-primary" style={{ padding: '0.8rem 1.5rem', fontSize: '1rem', borderRadius: '6px', minWidth: '220px', justifyContent: 'center' }}>Student Registration</Link>
+            <Link to="/register/employee" className="btn btn-secondary" style={{ padding: '0.8rem 1.5rem', fontSize: '1rem', borderRadius: '6px', minWidth: '220px', justifyContent: 'center' }}>Faculty & Staff</Link>
+          </div>
+          <div className="hero-secondary-actions">
+            <Link
+              to="/suggestions"
+              className="btn btn-ghost"
+              style={{ padding: '0.85rem 1.5rem', fontSize: '1rem', borderRadius: '6px' }}
+            >
+              Suggestions (Routes and Boarding Points)
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* Advance Payment Notice */}
-      <div className="advance-notice" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-md)', borderRadius: '8px', padding: '1.5rem', maxWidth: '600px', margin: '-2rem auto 3rem', position: 'relative', zIndex: '10' }}>
-        <div className="advance-notice-content">
-          <div className="advance-notice-icon" style={{ fontSize: '2rem' }}>💳</div>
-          <div>
-            <h3 className="advance-notice-title" style={{ fontSize: '1.1rem', marginBottom: '4px', fontWeight: '600' }}>
-              Advance Payment Required
+      {/* Student Advance Notice */}
+      <div
+        className="card"
+        style={{
+          maxWidth: '900px',
+          margin: '0 auto 3rem',
+          padding: '2rem 2.25rem',
+          border: '2px solid rgba(59, 130, 246, 0.35)',
+          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(14, 165, 233, 0.06))',
+          boxShadow: 'var(--shadow-md)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ fontSize: '2.25rem', lineHeight: 1 }}>⚠️</div>
+          <div style={{ flex: 1, minWidth: '260px' }}>
+            <h3 style={{ margin: '0 0 0.75rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+              For students only
             </h3>
-            <p className="advance-notice-subtext" style={{ color: 'var(--text-secondary)', margin: '0', fontSize: '0.9rem' }}>
-              A ₹5,000 deposit is mandatory. Fully refundable if no seat is allocated.
+            <p style={{ margin: 0, fontSize: '1.05rem', lineHeight: 1.8, color: 'var(--text-primary)', fontWeight: 700 }}>
+              Upcoming 2nd to 5th year students, pay the advance of Rs. 5000 in the office before registering in this platform.
             </p>
           </div>
         </div>
