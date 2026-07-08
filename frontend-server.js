@@ -14,7 +14,7 @@ app.get('/', (req, res) => {
 });
 // SPA fallback: serve index.html for the app routes.
 app.get(/^\/transport(?:\/.*)?$/, (req, res) => {
-  res.sendFile(path.join(CLIENT_DIST, 'index.html'));
+  res.sendFile(path.join(CLIENT_DIST, 'index.htm l'));
 });
 
 

@@ -525,6 +525,11 @@ export default function Registration() {
     if (e.target.name === 'registerNumber' && isStudent) {
       const regNum = e.target.value
 
+      if (yearCategory === 'phase_ii') {
+        setForm({ ...form, registerNumber: regNum })
+        return
+      }
+
       // Allow only digits
       if (!/^\d*$/.test(regNum)) return
 
@@ -710,7 +715,7 @@ export default function Registration() {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setResult(res.data)
-      setStep(isStudent ? 10 : 6)
+      setStep(isStudent ? 9 : 6)
       
       // Reset form and all state after successful registration
       setForm({
@@ -748,22 +753,27 @@ export default function Registration() {
     
     if (isStudent) {
       if (step === 1) return !!yearCategory
-      if (step === 2) return rollNumberVerified
+      if (step === 2) return yearCategory === 'phase_ii' ? (!!form.registerNumber && !!form.academicYear) : rollNumberVerified
       if (step === 3) return guidelinesAccepted
       if (step === 4) return instructionsAccepted
       if (step === 5) {
         const base = form.name && form.dateOfBirth && form.address && form.pincode &&
           form.phoneNumber && form.emergencyPhoneNumber && form.mailId && form.department
-        if (form.registerNumber.length !== 12 || !(form.registerNumber.startsWith('7155') || form.registerNumber.startsWith('7158'))) return false
-        if (!form.mailId.endsWith(expectedDomain)) return false
-        const validation = validateRegisterNumber(form.registerNumber)
+        if (yearCategory !== 'phase_ii') {
+          if (form.registerNumber.length !== 12 || !(form.registerNumber.startsWith('7155') || form.registerNumber.startsWith('7158'))) return false
+          if (!form.mailId.endsWith(expectedDomain)) return false
+          const validation = validateRegisterNumber(form.registerNumber)
+          if (!isValidPincode(form.pincode)) return false
+          if (!isValidPhone(form.phoneNumber) || !isValidPhone(form.emergencyPhoneNumber)) return false
+          return base && validation.valid && form.gender && form.academicYear
+        }
         if (!isValidPincode(form.pincode)) return false
         if (!isValidPhone(form.phoneNumber) || !isValidPhone(form.emergencyPhoneNumber)) return false
-        return base && validation.valid && form.gender && form.academicYear
+        return base && form.gender
       }
       if (step === 6) return selectedStop !== null
       if (step === 7) {
-        return governmentSponsored || (advanceReceiptFile && advanceReceiptNumber)
+        return yearCategory === 'phase_ii' ? true : (governmentSponsored || (advanceReceiptFile && advanceReceiptNumber))
       }
       if (step === 8) return finalReceiptFile && finalReceiptNumber && finalPaymentDate
       if (step === 9) return true
@@ -797,7 +807,7 @@ export default function Registration() {
     setCheckingNext(true)
     try {
       // Student details step: step 5
-      if (isStudent && step === 5) {
+      if (isStudent && step === 5 && yearCategory !== 'phase_ii') {
         try {
           const regRes = await axios.get('/api/register/check-duplicate', {
             params: { field: 'registerNumber', value: form.registerNumber, userType: 'student' }
@@ -811,6 +821,16 @@ export default function Registration() {
           setToast({ type: 'error', msg: err.response?.data?.message || 'Failed to verify registration' })
           return
         }
+      }
+
+      if (isStudent && yearCategory === 'phase_ii' && step === 2) {
+        setStep(3)
+        return
+      }
+
+      if (isStudent && yearCategory === 'phase_ii' && step === 6) {
+        setStep(8)
+        return
       }
 
       // Faculty details step: employee step is 3 for employees
@@ -829,7 +849,7 @@ export default function Registration() {
         }
       }
 
-      if (isStudent && step === 7 && !governmentSponsored) {
+      if (isStudent && step === 7 && !governmentSponsored && yearCategory !== 'phase_ii') {
         try {
           const receiptCheck = await axios.get('/api/payment/validate-advance', {
             params: {
@@ -893,37 +913,44 @@ export default function Registration() {
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '400px', margin: '0 auto' }}>
               {[
-                { val: 'phase_i', label: 'Phase I Allocation', icon: '📚', desc: '2nd to 5th Year (Kindly PAY the advance of Rs. 5000 BEFORE CLICKING on this link)' },
+                { val: 'phase_i', label: 'Phase I Allocation', icon: '📚', desc: 'Temporarily Disabled' },
                 {
                   val: 'phase_ii',
                   label: 'Phase II Allocation',
                   icon: '🆕',
-                  desc: '1st Year (Fresh Admission) and 2nd Year – Lateral Entry'
+                  desc: '1st Year (Fresh Admission) and 2nd Year – Lateral Entry',
+              
                 }
               ].map(opt => (
                 <div key={opt.val}
                   onClick={() => {
-                    if (opt.val === 'phase_ii') return
+                    if (opt.val === 'phase_i') return
                     setYearCategory(opt.val)
                   }}
                   style={{
                     padding: '1.25rem',
                     borderRadius: 'var(--radius-md)',
-                    border: opt.val === 'phase_ii' ? '2px solid rgba(59, 130, 246, 0.35)' : yearCategory === opt.val ? '2px solid var(--accent-blue)' : '2px solid var(--border-glass)',
-                    background: opt.val === 'phase_ii' ? 'rgba(148, 163, 184, 0.08)' : yearCategory === opt.val ? 'rgba(37, 99, 235, 0.08)' : 'var(--bg-secondary)',
-                    cursor: opt.val === 'phase_ii' ? 'not-allowed' : 'pointer',
-                    opacity: opt.val === 'phase_ii' ? 0.6 : 1,
+                    border: opt.val === 'phase_i'
+                      ? '2px solid rgba(148, 163, 184, 0.45)'
+                      : yearCategory === opt.val
+                        ? '2px solid var(--accent-blue)'
+                        : '2px solid var(--border-glass)',
+                    background: opt.val === 'phase_i'
+                      ? 'rgba(148, 163, 184, 0.08)'
+                      : yearCategory === opt.val
+                        ? 'rgba(37, 99, 235, 0.08)'
+                        : 'var(--bg-secondary)',
+                  
                     transition: 'var(--transition)',
-                    textAlign: 'left'
+                    textAlign: 'left',
+                    cursor: opt.val === 'phase_i' ? 'not-allowed' : 'pointer',
+                    opacity: opt.val === 'phase_i' ? 0.7 : 1
                   }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <span style={{ fontSize: '1.5rem' }}>{opt.icon}</span>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '1rem' }}>{opt.label}</div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{opt.desc}</div>
-                      {opt.val === 'phase_ii' && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--accent-rose)', marginTop: '0.25rem' }}>Temporarily disabled</div>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -933,8 +960,52 @@ export default function Registration() {
         </div>
       )}
 
+      {/* ===== STUDENT STEP 2: Phase II Basic Details ===== */}
+      {isStudent && step === 2 && yearCategory === 'phase_ii' && (
+        <div className="reg-form slide-up">
+          <div className="card" style={{ padding: '2rem' }}>
+            <div className="section-title">🆕 Phase II Details</div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+              Select your category and enter your register number/D Number (D26xxxx).
+            </p>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Category (First Year/Lateral Entry)*</label>
+                <select
+                  className="form-control"
+                  value={form.academicYear === '1' ? '1' : form.academicYear === '2' ? '2' : ''}
+                  onChange={(e) => setForm({ ...form, academicYear: e.target.value })}
+                >
+                  <option value="">Select Category</option>
+                  <option value="1">First Year</option>
+                  <option value="2">Lateral Entry</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Register Number/D Number*</label>
+                <input
+                  className="form-control"
+                  name="registerNumber"
+                  value={form.registerNumber}
+                  onChange={handleChange}
+                  placeholder="Enter your register number/D Number (D26xxxx)"
+                />
+              </div>
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', marginTop: '1rem' }}
+              disabled={!form.registerNumber || !form.academicYear}
+              onClick={() => setStep(3)}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ===== STUDENT STEP 2: Roll Number Verification ===== */}
-      {isStudent && step === 2 && (
+      {isStudent && step === 2 && yearCategory !== 'phase_ii' && (
         <div className="reg-form slide-up">
           <div className="card" style={{ padding: '2rem' }}>
             <div className="section-title">🔢 Enter Your Register Number</div>
@@ -952,9 +1023,9 @@ export default function Registration() {
                 maxLength={12}
                 style={{ fontSize: '1.1rem', letterSpacing: '1px' }}
               />
-              {form.registerNumber.length > 0 && (() => {
-                const validation = validateRegisterNumber(form.registerNumber)
-                if (!validation.valid) {
+                {form.registerNumber.length > 0 && (() => {
+                  const validation = validateRegisterNumber(form.registerNumber)
+                  if (!validation.valid) {
                   return (
                     <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
                       Register Number must be 12 digits and start with 7155 or 7158. Year code (positions 5-6) must be one of 22, 23, 24, 25.
@@ -1050,8 +1121,8 @@ export default function Registration() {
                   name={isStudent ? 'registerNumber' : 'employeeId'}
                   value={isStudent ? form.registerNumber : form.employeeId} 
                   onChange={handleChange}
-                  placeholder={isStudent ? 'e.g. 7155XXXXXXXX or 7158XXXXXXXX' : 'e.g. I1234 or A1234'}
-                  maxLength={isStudent ? 12 : undefined}
+                  placeholder={isStudent && yearCategory === 'phase_ii' ? 'Enter your register number' : isStudent ? 'e.g. 7155XXXXXXXX or 7158XXXXXXXX' : 'e.g. I1234 or A1234'}
+                  maxLength={isStudent && yearCategory === 'phase_ii' ? undefined : isStudent ? 12 : undefined}
                   inputMode={isEmployee ? 'text' : undefined}
                   autoCapitalize="off"
                   readOnly={isStudent}
@@ -1062,7 +1133,7 @@ export default function Registration() {
                     ❌ Faculty ID must start with 'I' or 'A' followed by 4 digits (e.g. I1234 or A5678)
                   </small>
                 )}
-                {isStudent && form.registerNumber.length > 0 && form.registerNumber.length < 12 && (
+                {isStudent && yearCategory !== 'phase_ii' && form.registerNumber.length > 0 && form.registerNumber.length < 12 && (
                   <small style={{ color: 'var(--accent-amber)', marginTop: '0.25rem', display: 'block' }}>
                     12 digits required, starting with 7155 or 7158
                   </small>
@@ -1178,22 +1249,12 @@ export default function Registration() {
                 <label>Email *</label>
                 <input 
                   className="form-control" 
-                  type="email" 
+                  type="text" 
                   name="mailId" 
                   value={form.mailId} 
                   onChange={handleChange}
-                  style={form.mailId && !form.mailId.endsWith(form.institution === 'PSG IAP' ? '@psgiap.ac.in' : '@psgitech.ac.in') ? { borderColor: 'var(--accent-rose)' } : {}}
+                  style={{}}
                 />
-                {form.mailId && !form.mailId.endsWith(form.institution === 'PSG IAP' ? '@psgiap.ac.in' : '@psgitech.ac.in') && (
-                  <small style={{ color: 'var(--accent-rose)', marginTop: '0.25rem', display: 'block' }}>
-                    ❌ Email must be from {form.institution === 'PSG IAP' ? 'psgiap.ac.in' : 'psgitech.ac.in'} domain
-                  </small>
-                )}
-                {form.mailId && form.mailId.endsWith(form.institution === 'PSG IAP' ? '@psgiap.ac.in' : '@psgitech.ac.in') && (
-                  <small style={{ color: 'var(--accent-emerald)', marginTop: '0.25rem', display: 'block' }}>
-                    ✓ Email domain verified
-                  </small>
-                )}
               </div>
             </div>
             <div className="form-row">
@@ -1254,7 +1315,7 @@ export default function Registration() {
               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, marginBottom: '0.75rem' }}>
                 View the complete route schedule and bus stop information from the attached PDF
               </p>
-              <a href="https://drive.google.com/file/d/1MuxGySxOVv7roChzpDlq5J60P10TcO03/view?usp=sharing" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '0.5rem 1rem', backgroundColor: 'var(--accent-blue)', color: 'white', borderRadius: '6px', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 600, transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'} onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+              <a href="https://drive.google.com/file/d/1MuxGySxOVv7roChzpDlq5J60P10TcO03/view?usp=sharing" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '0.5rem 1rem', backgroundColor: 'var(--accent-blue)', color: 'white', borderRadius: '6px', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 600, transition: 'all 0.2s ease' }} onMouseEnter={(e) => e.currentTarget.style.opacity = '                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          '} onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
                 📄 View Routes PDF
               </a>
             </div>
@@ -1360,7 +1421,7 @@ export default function Registration() {
       )}
 
       {/* Student Step 7: Advance Payment */}
-      {isStudent && step === 7 && (
+      {isStudent && step === 7 && yearCategory !== 'phase_ii' && (
         <div className="reg-form slide-up">
           <div className="card">
             <div className="section-title">Advance Payment</div>
@@ -1465,11 +1526,11 @@ export default function Registration() {
 
       {/* Final Fee Receipt Upload - Removed from registration, moved to dashboard */}
 
-      {/* Review: Student step 8, Employee step 5 */}
+      {/* Review / Final Fee: Student step 8, Employee step 5 */}
       {(isStudent ? step === 8 : step === 5) && (
         <div className="reg-form slide-up">
           <div className="card">
-            <div className="section-title">✅ Review Your Registration</div>
+            <div className="section-title">{isStudent && yearCategory === 'phase_ii' ? '💳 Final Fee' : '✅ Review Your Registration'}</div>
             <table style={{ width: '100%' }}>
               <tbody>
                 {[
@@ -1490,9 +1551,13 @@ export default function Registration() {
                   ['Boarding Point', selectedStop?.name],
                   ['Route', routes.find(r => r.routeId === selectedRoute)?.routeNumber],
                   ['Total Amount', `₹ ${getFinalFee().toLocaleString()}`],
-                  ['Advance Paid', `₹ ${getAdvanceAmount().toLocaleString()}`],
-                  ['Payable Amount', `₹ ${getPayableAmount().toLocaleString()}`],
-                  isStudent && governmentSponsored ? ['Scholarship', 'Government Sponsored Scholarship'] : (isStudent ? ['Advance Receipt #', advanceReceiptNumber || 'N/A'] : null),
+                  ...(isStudent && yearCategory === 'phase_ii'
+                    ? [['Payable Amount', `₹ ${getPayableAmount().toLocaleString()}`]]
+                    : [
+                        ['Advance Paid', `₹ ${getAdvanceAmount().toLocaleString()}`],
+                        ['Payable Amount', `₹ ${getPayableAmount().toLocaleString()}`],
+                        isStudent && governmentSponsored ? ['Scholarship', 'Government Sponsored Scholarship'] : (isStudent ? ['Advance Receipt #', advanceReceiptNumber || 'N/A'] : null)
+                      ]),
                 ].filter(Boolean).map(([k, v]) => (
                   <tr key={k}>
                     <td style={{ padding: '8px 12px', color: 'var(--text-muted)', width: '35%', fontSize: '0.85rem' }}>{k}</td>
@@ -1505,8 +1570,8 @@ export default function Registration() {
         </div>
       )}
 
-      {/* Success: Student step 10, Employee step 6 */}
-      {(isStudent ? step === 10 : step === 6) && result && (
+      {/* Success: Student step 9, Employee step 6 */}
+      {(isStudent ? step === 9 : step === 6) && result && (
         <div className="reg-form slide-up" style={{ textAlign: 'center' }}>
           <div className="card" style={{ padding: '3rem' }}>
             <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎉</div>
@@ -1530,11 +1595,11 @@ export default function Registration() {
       )}
 
       {/* Navigation */}
-      {(isStudent ? step <= 8 : step <= 5) && (
+      {(isStudent ? step <= 9 : step <= 5) && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginTop: '2rem', paddingBottom: '2rem' }}>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
             {step > 1 && !(isStudent && step === 2) && <button className="btn btn-secondary" onClick={() => setStep(s => s - 1)}>← Back</button>}
-            {(isStudent ? step < 8 && step !== 2 : step < 5) && (
+            {(isStudent ? step < 9 && step !== 2 : step < 5) && (
               <button className="btn btn-primary" disabled={!canNext() || checkingNext} onClick={handleNext}>
                 {checkingNext ? 'Checking...' : 'Next →'}
               </button>
@@ -1555,7 +1620,6 @@ export default function Registration() {
                 value={otp} 
                 onChange={e => setOtp(e.target.value)} 
                  style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '2px', marginBottom: '1rem', color: '#000000' }}
-                 className="form-control"
               />
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'stretch' }}>

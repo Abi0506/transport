@@ -37,6 +37,37 @@ export default function AdminDashboard() {
   const [routeViewType, setRouteViewType] = useState('allocated')
   const [routeViewData, setRouteViewData] = useState([])
   const [selectedCommuterId, setSelectedCommuterId] = useState(null)
+  
+  // Custom Email Center States
+  const [emailConfig, setEmailConfig] = useState({
+    recipientGroup: 'all',
+    routeId: '',
+    commuterId: '',
+    fromMonth: 'June',
+    toMonth: 'April',
+    deadline: '05.08.2025',
+    venue: 'iTech Office, E1 block Ground floor, Room No 102',
+    modeOfPayment: 'Cash / DD (Favoring: The Principal, PSG Institute of Technology and Applied Research, Payable at Coimbatore)'
+  })
+  const [sendingEmails, setSendingEmails] = useState(false)
+  const [previewType, setPreviewType] = useState('student')
+
+  const [commuterSearch, setCommuterSearch] = useState('')
+  const [commuterRouteFilter, setCommuterRouteFilter] = useState('')
+  const [commuterStopFilter, setCommuterStopFilter] = useState('')
+  const [commuterAllocFilter, setCommuterAllocFilter] = useState('all') // 'all', 'allocated', 'unallocated'
+  const [commuterPaidFilter, setCommuterPaidFilter] = useState('all')   // 'all', 'paid', 'not-paid'
+  const [commuterList, setCommuterList] = useState([])
+  const [loadingCommuters, setLoadingCommuters] = useState(false)
+  const [manualAllocTarget, setManualAllocTarget] = useState(null) // { registration, routeId, stopName }
+
+  const [editSearch, setEditSearch] = useState('')
+  const [editRouteFilter, setEditRouteFilter] = useState('')
+  const [editUserTypeFilter, setEditUserTypeFilter] = useState('')
+  const [editCommutersList, setEditCommutersList] = useState([])
+  const [loadingEditCommuters, setLoadingEditCommuters] = useState(false)
+  const [editingCommuter, setEditingCommuter] = useState(null) // registration object currently being edited
+
   const sortedRoutes = [...routes].sort((a, b) => a.routeName.localeCompare(b.routeName, undefined, { numeric: true, sensitivity: 'base' }))
   const totalRegistrations = stats?.totalRegistrations || 0
   const globalFacultyPercent = totalRegistrations ? Math.round(((stats?.facultyCount || 0) / totalRegistrations) * 100) : 0
@@ -49,8 +80,10 @@ export default function AdminDashboard() {
   })
   const adminTabs = [
     { id: 'operations', label: 'Operations' },
+    { id: 'edit_directory', label: '✏️ Edit Directory' },
     { id: 'suggestions', label: 'Suggestions' },
-    { id: 'payments', label: 'Advance & Final Payment' }
+    { id: 'payments', label: 'Advance & Final Payment' },
+    { id: 'emails', label: 'Email Center' }
   ]
 
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4000) }
@@ -97,10 +130,13 @@ export default function AdminDashboard() {
   }
 
   const handleAllocate = async () => {
-    if (!window.confirm(`Run ${allocMode === 'all' ? 'full' : 'route-wise'} allocation?`)) return
+    const confirmation = window.prompt("To run overall allocation, type 'ALLOCATE ALL' to confirm:")
+    if (confirmation !== 'ALLOCATE ALL') {
+      showToast('error', 'Allocation cancelled. Confirmation text did not match.')
+      return
+    }
     try {
-      const body = allocMode === 'route' ? { mode: 'route', routeId: allocRoute } : { mode: 'all' }
-      const res = await api.post('/api/admin/allocate', body)
+      const res = await api.post('/api/admin/allocate', { mode: 'all' })
       setAllocResult(res.data.results)
       showToast('success', res.data.message)
       fetchData()
@@ -297,6 +333,7 @@ export default function AdminDashboard() {
   }
 
   const deallocateUser = async (regId) => {
+    if (!window.confirm('Are you sure you want to deallocate this commuter?')) return
     const reason = window.prompt('Enter deallocation reason')
     if (reason === null) return
     try {
@@ -311,11 +348,128 @@ export default function AdminDashboard() {
   }
 
   const resendMail = async (regId, type) => {
+    if (!window.confirm(`Are you sure you want to send the ${type} email to this commuter?`)) return
     try {
-      const res = await api.post(`/api/admin/resend-mail/${regId}`, { type })
+      const payload = { type }
+      if (type === 'allocation') {
+        payload.fromMonth = emailConfig.fromMonth
+        payload.toMonth = emailConfig.toMonth
+        payload.deadline = emailConfig.deadline
+        payload.venue = emailConfig.venue
+        payload.modeOfPayment = emailConfig.modeOfPayment
+      }
+      const res = await api.post(`/api/admin/resend-mail/${regId}`, payload)
       showToast('success', res.data.message)
     } catch (err) {
       showToast('error', err.response?.data?.message || 'Failed to send mail')
+    }
+  }
+
+  const sendBulkEmails = async () => {
+    const isIndividual = emailConfig.commuterId && emailConfig.commuterId.trim()
+    const confirmMsg = isIndividual 
+      ? `Send allocation email to commuter "${emailConfig.commuterId.trim()}"?`
+      : `Are you sure you want to send allocation emails to the selected group? This may take some time.`
+    if (!window.confirm(confirmMsg)) return
+    setSendingEmails(true)
+    try {
+      const res = await api.post('/api/admin/send-bulk-emails', {
+        userType: emailConfig.recipientGroup,
+        routeId: emailConfig.routeId,
+        commuterId: emailConfig.commuterId,
+        fromMonth: emailConfig.fromMonth,
+        toMonth: emailConfig.toMonth,
+        deadline: emailConfig.deadline,
+        venue: emailConfig.venue,
+        modeOfPayment: emailConfig.modeOfPayment
+      })
+      showToast('success', res.data.message)
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to send emails')
+    } finally {
+      setSendingEmails(false)
+    }
+  }
+
+  const fetchCommuterList = useCallback(async () => {
+    setLoadingCommuters(true)
+    try {
+      const params = new URLSearchParams({ limit: '100' })
+      if (commuterSearch.trim()) params.append('search', commuterSearch.trim())
+      if (commuterRouteFilter) params.append('route', commuterRouteFilter)
+      if (commuterStopFilter) params.append('boardingPoint', commuterStopFilter)
+      
+      if (commuterAllocFilter === 'allocated') {
+        params.append('status', 'allocated')
+      } else if (commuterAllocFilter === 'unallocated') {
+        params.append('view', 'need-allocation')
+      } else if (commuterAllocFilter === 'deallocated') {
+        params.append('status', 'deallocated')
+      } else if (commuterAllocFilter === 'cancelled') {
+        params.append('status', 'cancelled')
+      }
+
+      if (commuterPaidFilter === 'paid') {
+        params.append('advancePaid', 'true')
+      } else if (commuterPaidFilter === 'not-paid') {
+        params.append('advancePaid', 'false')
+      }
+
+      const res = await api.get(`/api/admin/registrations?${params.toString()}`)
+      setCommuterList(res.data.registrations || [])
+    } catch {
+      showToast('error', 'Failed to load commuters list')
+    } finally {
+      setLoadingCommuters(false)
+    }
+  }, [commuterSearch, commuterRouteFilter, commuterStopFilter, commuterAllocFilter, commuterPaidFilter])
+
+  const allocateIndividualCommuter = async (regId, routeId, stopName) => {
+    if (!window.confirm('Are you sure you want to allocate this commuter?')) return
+    try {
+      const res = await api.post(`/api/admin/allocate-individual/${regId}`, { routeId, stopName })
+      showToast('success', res.data.message)
+      setManualAllocTarget(null)
+      fetchCommuterList()
+      fetchData()
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to allocate commuter')
+    }
+  }
+
+  const fetchEditCommutersList = async () => {
+    setLoadingEditCommuters(true)
+    try {
+      const params = new URLSearchParams({ limit: '100' })
+      if (editSearch.trim()) params.append('search', editSearch.trim())
+      if (editRouteFilter) params.append('route', editRouteFilter)
+      if (editUserTypeFilter) params.append('userType', editUserTypeFilter)
+      const res = await api.get(`/api/admin/registrations?${params.toString()}`)
+      setEditCommutersList(res.data.registrations || [])
+    } catch {
+      showToast('error', 'Failed to load commuters')
+    } finally {
+      setLoadingEditCommuters(false)
+    }
+  }
+
+  const saveCommuterDetails = async () => {
+    try {
+      const res = await api.put(`/api/admin/registration/${editingCommuter._id}`, {
+        name: editingCommuter.name,
+        mailId: editingCommuter.mailId,
+        registerNumber: editingCommuter.registerNumber,
+        employeeId: editingCommuter.employeeId,
+        userType: editingCommuter.userType,
+        academicYear: editingCommuter.academicYear,
+        boardingPoint: editingCommuter.boardingPoint
+      })
+      showToast('success', res.data.message)
+      setEditingCommuter(null)
+      fetchEditCommutersList()
+      fetchData()
+    } catch (err) {
+      showToast('error', err.response?.data?.message || 'Failed to update commuter details')
     }
   }
 
@@ -405,127 +559,364 @@ export default function AdminDashboard() {
 
       {activeTab === 'operations' && (
       <>
-      <div className="card-grid cols-2" style={{ marginBottom: '1.5rem' }}>
-        <div className="card">
-          <h3 style={{ marginBottom: '1rem' }}>⚡ Seat Allocation</h3>
-          <div className="form-group">
-            <label>Mode</label>
-            <select className="form-control" value={allocMode} onChange={e => setAllocMode(e.target.value)}>
-              <option value="all">Allocate All Routes</option>
-              <option value="route">Allocate Specific Route</option>
-            </select>
+        <div className="card-grid cols-2" style={{ marginBottom: '1.5rem' }}>
+          <div className="card">
+            <h3 style={{ marginBottom: '1rem' }}>⚡ Seat Allocation</h3>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.9rem', lineHeight: '1.4' }}>
+              Run the overall seat allocation engine for all routes. Active commuters who have paid the advance and are not deallocated will be assigned seats.
+            </p>
+            <button className="btn btn-primary" onClick={handleAllocate}>🚀 Run Overall Allocation</button>
           </div>
-          {allocMode === 'route' && (
+
+          <div className="card">
+            <h3 style={{ marginBottom: '1rem' }}>🔄 Swap Bus Stop</h3>
             <div className="form-group">
-              <label>Select Route</label>
-              <select className="form-control" value={allocRoute} onChange={e => setAllocRoute(e.target.value)}>
-                <option value="">Select...</option>
+              <label>From Route</label>
+              <select className="form-control" value={swapData.fromRouteId} onChange={e => setSwapData({ ...swapData, fromRouteId: e.target.value, stopName: '' })}>
+                <option value="">Select source route...</option>
                 {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
               </select>
             </div>
-          )}
-          <button className="btn btn-primary" onClick={handleAllocate}>🚀 Run Allocation</button>
+            <div className="form-group">
+              <label>Stop</label>
+              <select className="form-control" value={swapData.stopName} onChange={e => setSwapData({ ...swapData, stopName: e.target.value })}>
+                <option value="">Select stop...</option>
+                {routes.find(r => r._id === swapData.fromRouteId)?.stops.map(s => (
+                  <option key={s.name} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>To Route</label>
+              <select className="form-control" value={swapData.toRouteId} onChange={e => setSwapData({ ...swapData, toRouteId: e.target.value })}>
+                <option value="">Select target route...</option>
+                {routes.filter(r => r._id !== swapData.fromRouteId).map(r => (
+                  <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>
+                ))}
+              </select>
+            </div>
+            <button className="btn btn-secondary" onClick={handleSwap}>Move Stop →</button>
+          </div>
+        </div>
 
-          <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-glass)' }}>
-            <h4 style={{ marginBottom: '0.5rem', fontSize: '0.9rem' }}>Bulk Actions</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <button className="btn btn-secondary btn-sm" onClick={handleDeallocateUnpaid} style={{ justifyContent: 'flex-start' }}>
-                ⚠️ Deallocate Unpaid Users
-              </button>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn-secondary btn-sm" onClick={handleRejectUnallocated} style={{ flex: 1, justifyContent: 'flex-start' }}>
-                  💸 Reject Unallocated
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={viewRefunds} style={{ flex: 1, justifyContent: 'flex-start' }}>
-                  👁️ View Refund Candidates
-                </button>
+        <h2 style={{ margin: '0 0 1rem' }}>🗺️ Routes Overview</h2>
+        {routes.map(route => (
+          <div key={route._id} className="card route-card">
+            <div className="route-card-header" onClick={() => setExpandedRoute(expandedRoute === route._id ? null : route._id)}>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span><span style={{ color: 'var(--accent-blue)' }}>{route.routeNumber}</span> {route.routeName}</span>
+                  <span className={`route-badge ${route.occupancyPercent >= 90 ? 'full' : route.occupancyPercent >= 50 ? 'partial' : 'empty'}`}>
+                    {route.occupancyPercent}% full
+                  </span>
+                  <button className="btn btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={(e) => { e.stopPropagation(); setEditRoute(route) }}>Edit Stops</button>
+                </h3>
               </div>
+              <span style={{ color: 'var(--text-muted)', marginLeft: '1rem' }}>
+                {route.totalRegistered}/{route.capacity} • {expandedRoute === route._id ? '▲' : '▼'}
+              </span>
+            </div>
+
+            <div style={{ padding: '0 1.5rem' }}>
+              <div className="occupancy-bar">
+                <div className="segment faculty" style={{ width: `${route.facultyPercent}%` }} />
+                <div className="segment staff" style={{ width: `${route.staffPercent}%` }} />
+                <div className="segment student" style={{ width: `${route.studentPercent}%` }} />
+              </div>
+              <div className="route-meta">
+                <span><span className="dot" style={{ background: 'var(--accent-blue)' }} /> Faculty: {route.commuterSplit?.faculty?.count ?? route.facultyCount} ({route.commuterSplit?.faculty?.percentOfCapacity ?? route.facultyPercent}% seats, {route.commuterSplit?.faculty?.percentOfCommuters ?? 0}% commuters)</span>
+                <span><span className="dot" style={{ background: 'var(--accent-purple)' }} /> Staff: {route.commuterSplit?.staff?.count ?? route.staffCount} ({route.commuterSplit?.staff?.percentOfCapacity ?? route.staffPercent}% seats, {route.commuterSplit?.staff?.percentOfCommuters ?? 0}% commuters)</span>
+                <span><span className="dot" style={{ background: 'var(--accent-emerald)' }} /> Students: {route.commuterSplit?.students?.count ?? route.studentTotal} ({route.commuterSplit?.students?.percentOfCapacity ?? route.studentPercent}% seats, {route.commuterSplit?.students?.percentOfCommuters ?? 0}% commuters)</span>
+              </div>
+              {route.commuterSplit?.students?.byYear && (
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.85rem', color: 'var(--text-secondary)', padding: '0.5rem 0', marginTop: '0.25rem', borderTop: '1px solid var(--border-color)' }}>
+                  <span>Year 1: <strong>{route.commuterSplit.students.byYear[1]}</strong> ({route.capacity ? Math.round((route.commuterSplit.students.byYear[1] / route.capacity) * 100) : 0}%)</span>
+                  <span>Year 2: <strong>{route.commuterSplit.students.byYear[2]}</strong> ({route.capacity ? Math.round((route.commuterSplit.students.byYear[2] / route.capacity) * 100) : 0}%)</span>
+                  <span>Year 3: <strong>{route.commuterSplit.students.byYear[3]}</strong> ({route.capacity ? Math.round((route.commuterSplit.students.byYear[3] / route.capacity) * 100) : 0}%)</span>
+                  <span>Year 4: <strong>{route.commuterSplit.students.byYear[4]}</strong> ({route.capacity ? Math.round((route.commuterSplit.students.byYear[4] / route.capacity) * 100) : 0}%)</span>
+                  <span>Year 5: <strong>{route.commuterSplit.students.byYear[5]}</strong> ({route.capacity ? Math.round((route.commuterSplit.students.byYear[5] / route.capacity) * 100) : 0}%)</span>
+                </div>
+              )}
+            </div>
+
+            {expandedRoute === route._id && (
+              <div style={{ padding: '0 1.5rem 1.5rem' }}>
+                <table className="stop-table">
+                  <thead>
+                    <tr>
+                      <th>Stop</th><th>Time</th><th>Fee</th><th>Total</th>
+                      <th>Faculty</th><th>Staff</th><th>Students</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {route.stops.map(stop => (
+                      <tr key={stop.name}>
+                        <td style={{ fontWeight: 600 }}>{stop.name}</td>
+                        <td>{stop.time}</td>
+                        <td>₹{stop.fees.toLocaleString()}</td>
+                        <td><strong>{stop.totalCount}</strong></td>
+                        <td>{stop.facultyCount}</td>
+                        <td>{stop.staffCount}</td>
+                        <td>{stop.studentCount}</td>
+                        <td><button className="view-btn" onClick={() => viewStopPeople(route._id, stop.name)}>View People</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* Commuter Management Section */}
+        <div className="card" style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+          <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            🔍 Commuter Directory & Seat Manager
+          </h3>
+
+          {/* Filter Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Search Commuter</label>
+              <input className="form-control" value={commuterSearch} onChange={e => setCommuterSearch(e.target.value)} placeholder="Search name, roll #, email..." />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Route Filter</label>
+              <select className="form-control" value={commuterRouteFilter} onChange={e => { setCommuterRouteFilter(e.target.value); setCommuterStopFilter('') }}>
+                <option value="">All Routes</option>
+                {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Bus Stop Filter</label>
+              <select className="form-control" value={commuterStopFilter} onChange={e => setCommuterStopFilter(e.target.value)}>
+                <option value="">All Stops</option>
+                {commuterRouteFilter && routes.find(r => r._id === commuterRouteFilter)?.stops.map(s => (
+                  <option key={s.name} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Allocation Status</label>
+              <select className="form-control" value={commuterAllocFilter} onChange={e => setCommuterAllocFilter(e.target.value)}>
+                <option value="all">All Statuses</option>
+                <option value="allocated">Allocated</option>
+                <option value="unallocated">Unallocated</option>
+                <option value="deallocated">Deallocated</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Payment Status</label>
+              <select className="form-control" value={commuterPaidFilter} onChange={e => setCommuterPaidFilter(e.target.value)}>
+                <option value="all">All Payments</option>
+                <option value="paid">Paid</option>
+                <option value="not-paid">Not Paid</option>
+              </select>
             </div>
           </div>
-        </div>
 
-        <div className="card">
-          <h3 style={{ marginBottom: '1rem' }}>🔄 Swap Bus Stop</h3>
-          <div className="form-group">
-            <label>From Route</label>
-            <select className="form-control" value={swapData.fromRouteId} onChange={e => setSwapData({ ...swapData, fromRouteId: e.target.value, stopName: '' })}>
-              <option value="">Select source route...</option>
-              {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Stop</label>
-            <select className="form-control" value={swapData.stopName} onChange={e => setSwapData({ ...swapData, stopName: e.target.value })}>
-              <option value="">Select stop...</option>
-              {routes.find(r => r._id === swapData.fromRouteId)?.stops.map(s => (
-                <option key={s.name} value={s.name}>{s.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>To Route</label>
-            <select className="form-control" value={swapData.toRouteId} onChange={e => setSwapData({ ...swapData, toRouteId: e.target.value })}>
-              <option value="">Select target route...</option>
-              {routes.filter(r => r._id !== swapData.fromRouteId).map(r => (
-                <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>
-              ))}
-            </select>
-          </div>
-          <button className="btn btn-secondary" onClick={handleSwap}>Move Stop →</button>
-        </div>
-      </div>
+          <button className="btn btn-primary" onClick={fetchCommuterList} disabled={loadingCommuters} style={{ marginBottom: '1.5rem' }}>
+            {loadingCommuters ? 'Applying...' : '🔍 Apply Search & Filters'}
+          </button>
 
-      <h2 style={{ margin: '0 0 1rem' }}>🗺️ Routes Overview</h2>
-      {routes.map(route => (
-        <div key={route._id} className="card route-card">
-          <div className="route-card-header" onClick={() => setExpandedRoute(expandedRoute === route._id ? null : route._id)}>
-            <div style={{ flex: 1 }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <span><span style={{ color: 'var(--accent-blue)' }}>{route.routeNumber}</span> {route.routeName}</span>
-                <span className={`route-badge ${route.occupancyPercent >= 90 ? 'full' : route.occupancyPercent >= 50 ? 'partial' : 'empty'}`}>
-                  {route.occupancyPercent}% full
-                </span>
-                <button className="btn btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={(e) => { e.stopPropagation(); setEditRoute(route) }}>Edit Stops</button>
-              </h3>
-            </div>
-            <span style={{ color: 'var(--text-muted)', marginLeft: '1rem' }}>
-              {route.totalRegistered}/{route.capacity} • {expandedRoute === route._id ? '▲' : '▼'}
-            </span>
-          </div>
-
-          <div style={{ padding: '0 1.5rem' }}>
-            <div className="occupancy-bar">
-              <div className="segment faculty" style={{ width: `${route.facultyPercent}%` }} />
-              <div className="segment staff" style={{ width: `${route.staffPercent}%` }} />
-              <div className="segment student" style={{ width: `${route.studentPercent}%` }} />
-            </div>
-            <div className="route-meta">
-              <span><span className="dot" style={{ background: 'var(--accent-blue)' }} /> Faculty: {route.commuterSplit?.faculty?.count ?? route.facultyCount} ({route.commuterSplit?.faculty?.percentOfCapacity ?? route.facultyPercent}% seats, {route.commuterSplit?.faculty?.percentOfCommuters ?? 0}% commuters)</span>
-              <span><span className="dot" style={{ background: 'var(--accent-purple)' }} /> Staff: {route.commuterSplit?.staff?.count ?? route.staffCount} ({route.commuterSplit?.staff?.percentOfCapacity ?? route.staffPercent}% seats, {route.commuterSplit?.staff?.percentOfCommuters ?? 0}% commuters)</span>
-              <span><span className="dot" style={{ background: 'var(--accent-emerald)' }} /> Students: {route.commuterSplit?.students?.count ?? route.studentTotal} ({route.commuterSplit?.students?.percentOfCapacity ?? route.studentPercent}% seats, {route.commuterSplit?.students?.percentOfCommuters ?? 0}% commuters)</span>
-            </div>
-          </div>
-
-          {expandedRoute === route._id && (
-            <div style={{ padding: '0 1.5rem 1.5rem' }}>
+          {/* Results List */}
+          {loadingCommuters ? (
+            <p style={{ color: 'var(--text-muted)' }}>Loading commuters list...</p>
+          ) : commuterList.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)' }}>No commuters found matching filters.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
               <table className="stop-table">
                 <thead>
                   <tr>
-                    <th>Stop</th><th>Time</th><th>Fee</th><th>Total</th>
-                    <th>Faculty</th><th>Staff</th><th>Students</th><th></th>
+                    <th>Commuter</th>
+                    <th>Type/Year</th>
+                    <th>Requested Stop</th>
+                    <th>Allocation</th>
+                    <th>Payment</th>
+                    <th>Actions</th>
+                    <th>Email Manager</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {route.stops.map(stop => (
-                    <tr key={stop.name}>
-                      <td style={{ fontWeight: 600 }}>{stop.name}</td>
-                      <td>{stop.time}</td>
-                      <td>₹{stop.fees.toLocaleString()}</td>
-                      <td><strong>{stop.totalCount}</strong></td>
-                      <td>{stop.facultyCount}</td>
-                      <td>{stop.staffCount}</td>
-                      <td>{stop.studentCount}</td>
-                      <td><button className="view-btn" onClick={() => viewStopPeople(route._id, stop.name)}>View People</button></td>
+                  {commuterList.map(reg => {
+                    const isAllocated = reg.registrationStatus === 'allocated';
+                    const bpRouteId = reg.boardingPointRoute?._id || reg.boardingPointRoute;
+                    const allocRouteId = reg.allocatedRoute?._id || reg.allocatedRoute;
+                    const requestedRouteObj = sortedRoutes.find(r => r._id === bpRouteId);
+                    const allocatedRouteObj = sortedRoutes.find(r => r._id === allocRouteId);
+                    
+                    return (
+                      <tr key={reg._id}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{reg.name}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{reg.registerNumber || reg.employeeId}</div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: '0.9rem', textTransform: 'capitalize' }}>{reg.userType}</div>
+                          {reg.userType === 'student' && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Year {reg.academicYear}</div>}
+                        </td>
+                        <td>
+                          <div>{reg.boardingPoint}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{requestedRouteObj ? `Route ${requestedRouteObj.routeNumber} — ${requestedRouteObj.routeName}` : 'No requested route'}</div>
+                        </td>
+                        <td>
+                          {isAllocated ? (
+                            <div style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}>
+                              Route {allocatedRouteObj?.routeNumber || 'N/A'} — {reg.allocatedStop || 'N/A'}
+                            </div>
+                          ) : (reg.registrationStatus === 'deallocated' || reg.registrationStatus === 'rejected' || reg.registrationStatus === 'cancelled') ? (
+                            <div style={{ color: 'var(--accent-rose)', fontWeight: 600 }}>
+                              Deallocated
+                            </div>
+                          ) : (
+                            <div style={{ color: 'var(--accent-amber)', fontWeight: 600 }}>
+                              Unallocated
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700,
+                            background: 'rgba(244,63,94,0.15)',
+                            color: 'var(--accent-rose)'
+                          }}>Unpaid</span>
+                        </td>
+                        <td style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button
+                            className="btn"
+                            disabled={isAllocated}
+                            style={{
+                              background: isAllocated ? '#9ca3af' : '#16a34a',
+                              color: '#ffffff',
+                              border: 'none',
+                              padding: '6px 12px',
+                              borderRadius: '4px',
+                              cursor: isAllocated ? 'not-allowed' : 'pointer',
+                              fontWeight: 'bold',
+                              opacity: isAllocated ? 0.6 : 1
+                            }}
+                            onClick={() => setManualAllocTarget({
+                              registration: reg,
+                              routeId: reg.boardingPointRoute || '',
+                              stopName: reg.boardingPoint || ''
+                            })}
+                          >
+                            Allocate
+                          </button>
+                          <button
+                            className="btn"
+                            disabled={!isAllocated}
+                            style={{
+                              background: !isAllocated ? '#9ca3af' : '#dc2626',
+                              color: '#ffffff',
+                              border: 'none',
+                              padding: '6px 12px',
+                              borderRadius: '4px',
+                              cursor: !isAllocated ? 'not-allowed' : 'pointer',
+                              fontWeight: 'bold',
+                              opacity: !isAllocated ? 0.6 : 1
+                            }}
+                            onClick={async () => {
+                              await deallocateUser(reg._id);
+                              fetchCommuterList();
+                            }}
+                          >
+                            Deallocate
+                          </button>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            <button className="btn" style={{ background: '#2563eb', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'allocation')}>Send Alloc</button>
+                            <button className="btn" style={{ background: '#ea580c', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'deallocation')}>Send Dealloc</button>
+                            <button className="btn" style={{ background: '#be123c', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'unpaid')}>Send Unpaid</button>
+                            <button className="btn" style={{ background: '#0d9488', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'paid')}>Send Paid</button>
+                            <button className="btn" style={{ background: '#4f46e5', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'unallocated')}>Send Unalloc</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </>
+      )}
+
+      {/* Edit Directory Tab */}
+      {activeTab === 'edit_directory' && (
+        <div className="card fade-in" style={{ padding: '2rem', marginBottom: '1.5rem' }}>
+          <h2 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            ✏️ Commuter Directory Editor
+          </h2>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
+            Search, filter, and edit contact and registration details for students, faculty, and staff. Note: Status and Payment flags are managed in the operations panel.
+          </p>
+
+          {/* Filter Form */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Search Commuter</label>
+              <input className="form-control" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Search name, roll #, email..." />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Route Filter</label>
+              <select className="form-control" value={editRouteFilter} onChange={e => setEditRouteFilter(e.target.value)}>
+                <option value="">All Routes</option>
+                {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>User Type</label>
+              <select className="form-control" value={editUserTypeFilter} onChange={e => setEditUserTypeFilter(e.target.value)}>
+                <option value="">All Types</option>
+                <option value="student">Student</option>
+                <option value="faculty">Faculty</option>
+                <option value="staff">Staff</option>
+              </select>
+            </div>
+          </div>
+
+          <button className="btn btn-primary" onClick={fetchEditCommutersList} disabled={loadingEditCommuters} style={{ marginBottom: '1.5rem' }}>
+            {loadingEditCommuters ? 'Searching...' : '🔍 Search Commuters'}
+          </button>
+
+          {/* Results Table */}
+          {loadingEditCommuters ? (
+            <p style={{ color: 'var(--text-muted)' }}>Searching database...</p>
+          ) : editCommutersList.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)' }}>No commuters loaded. Please use the search bar above.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="stop-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>ID / Roll Number</th>
+                    <th>Email</th>
+                    <th>User Type</th>
+                    <th>Academic Year</th>
+                    <th>Boarding Point</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editCommutersList.map(reg => (
+                    <tr key={reg._id}>
+                      <td style={{ fontWeight: 600 }}>{reg.name}</td>
+                      <td>{reg.registerNumber || reg.employeeId || '—'}</td>
+                      <td>{reg.mailId}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{reg.userType}</td>
+                      <td>{reg.academicYear || '—'}</td>
+                      <td>{reg.boardingPoint}</td>
+                      <td>
+                        <button className="btn" style={{ background: '#2563eb', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => setEditingCommuter({ ...reg })}>
+                          ✏️ Edit
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -533,78 +924,6 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
-      ))}
-
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginBottom: '1rem' }}>📂 Registration Filters</h3>
-        <div className="form-row">
-          <div className="form-group">
-            <label>View</label>
-            <select className="form-control" value={filterView} onChange={e => setFilterView(e.target.value)}>
-              <option value="registered">Registered</option>
-              <option value="unregistered">Unregistered Advance Paid</option>
-              <option value="allocated">Allocated</option>
-              <option value="need-allocation">Need Allocation</option>
-              <option value="deallocated">Deallocated</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Advance Payment</label>
-            <select className="form-control" value={filterAdvancePaid} onChange={e => setFilterAdvancePaid(e.target.value)}>
-              <option value="">All</option>
-              <option value="true">Advance Paid</option>
-              <option value="false">Advance Not Paid</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Final Payment</label>
-            <select className="form-control" value={filterFinalPaid} onChange={e => setFilterFinalPaid(e.target.value)}>
-              <option value="">All</option>
-              <option value="true">Final Paid</option>
-              <option value="false">Final Not Paid</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Route</label>
-            <select className="form-control" value={filterRoute} onChange={e => setFilterRoute(e.target.value)}>
-              <option value="">All Routes</option>
-              {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
-            </select>
-          </div>
-        </div>
-        <button className="btn btn-primary" onClick={loadFilteredRegistrations}>Load Filtered Data</button>
-
-        {filteredRegs.length > 0 && (
-          <div style={{ marginTop: '1rem', maxHeight: '380px', overflowY: 'auto' }}>
-            <table className="stop-table">
-              <thead>
-                <tr><th>Name</th><th>ID</th><th>Status</th><th>Advance</th><th>Final</th><th>Actions</th></tr>
-              </thead>
-              <tbody>
-                {filteredRegs.map(reg => (
-                  <tr key={reg._id}>
-                    <td>{reg.name}</td>
-                    <td>{reg.registerNumber || reg.employeeId}</td>
-                    <td>{reg.registrationStatus}</td>
-                    <td>{reg.advancePaid ? 'Yes' : 'No'}</td>
-                    <td>{reg.fullFeePaid ? 'Yes' : 'No'}</td>
-                    <td style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                      {reg.advancePaid && reg.registrationStatus !== 'allocated' && (
-                        <button className="btn btn-secondary btn-sm" onClick={() => moveToWaitlist(reg._id)}>Waitlist</button>
-                      )}
-                      <button className="btn btn-danger btn-sm" onClick={() => deallocateUser(reg._id)}>Deallocate</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'registration')}>Send Reg Mail</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'allocation')}>Send Alloc Mail</button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'deallocation')}>Send Dealloc Mail</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      </>
       )}
 
       {/* Suggestions */}
@@ -638,7 +957,8 @@ export default function AdminDashboard() {
       {/* Cancellations */}
       {cancellations.length > 0 && (
         <div className="card" style={{ marginBottom: '1.5rem', border: '1px solid var(--accent-rose)' }}>
-          <h3 style={{ marginBottom: '1rem', color: 'var(--accent-rose)' }}>⚠️ Pending Cancellation Requests ({cancellations.length})</h3>
+          <h3 style={{ marginBottom: '0.5rem', color: 'var(--accent-rose)' }}>⚠️ Pending Cancellation Requests - Advance Cancellation ({cancellations.length})</h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>Note: These cancellation requests are for the advance payment of ₹5,000 (fully refundable on or before September 10, 2026).</p>
           <table className="stop-table">
             <thead>
               <tr><th>Name</th><th>ID</th><th>Reason</th><th>Document</th><th>Action</th></tr>
@@ -758,6 +1078,156 @@ export default function AdminDashboard() {
         )}
       </div>
         </>
+      )}
+
+      {activeTab === 'emails' && (
+        <div className="card fade-in" style={{ padding: '2rem', marginBottom: '1.5rem' }}>
+          <h2 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            ✉️ Email Center
+          </h2>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
+            Send detailed college bus seat allocation emails to allocated students, faculties, and staff.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '2rem' }}>
+            {/* Form Column */}
+            <div>
+              <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>Email Editor</h3>
+              
+              <div className="form-row" style={{ marginBottom: '1rem' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontWeight: 600 }}>Duration - From Month</label>
+                  <input className="form-control" value={emailConfig.fromMonth} onChange={e => setEmailConfig({ ...emailConfig, fromMonth: e.target.value })} placeholder="e.g., June" />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontWeight: 600 }}>Duration - To Month</label>
+                  <input className="form-control" value={emailConfig.toMonth} onChange={e => setEmailConfig({ ...emailConfig, toMonth: e.target.value })} placeholder="e.g., April" />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontWeight: 600 }}>Payment Deadline Date</label>
+                <input className="form-control" value={emailConfig.deadline} onChange={e => setEmailConfig({ ...emailConfig, deadline: e.target.value })} placeholder="e.g., 05.08.2025" />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontWeight: 600 }}>Mode of Payment</label>
+                <textarea className="form-control" rows={3} value={emailConfig.modeOfPayment} onChange={e => setEmailConfig({ ...emailConfig, modeOfPayment: e.target.value })} placeholder="Payment instructions..." />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontWeight: 600 }}>Payment Venue</label>
+                <input className="form-control" value={emailConfig.venue} onChange={e => setEmailConfig({ ...emailConfig, venue: e.target.value })} placeholder="e.g., iTech Office, E1 block Ground floor, Room No 102" />
+              </div>
+            </div>
+
+            {/* Preview Column */}
+            <div>
+              <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>Dynamic Previews</h3>
+              
+              <div className="admin-subtabs" style={{ marginBottom: '1.5rem', display: 'flex', gap: '0.5rem' }}>
+                <button className={`btn ${previewType === 'student' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPreviewType('student')}>Student Template</button>
+                <button className={`btn ${previewType === 'staff' ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPreviewType('staff')}>Faculty/Staff Template</button>
+              </div>
+
+              <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '20px', background: '#fff', color: '#333', maxHeight: '550px', overflowY: 'auto', fontFamily: 'Arial, sans-serif' }}>
+                {previewType === 'student' ? (
+                  <div>
+                    <h2 style={{ color: '#1d4ed8', textAlign: 'center', marginBottom: '5px', fontSize: '20px', fontWeight: 'bold' }}>Transport Section PSG iTech</h2>
+                    <hr style={{ border: '0', borderTop: '1px solid #d1d5db', marginBottom: '15px' }} />
+                    <p style={{ fontSize: '14px', margin: '0 0 10px 0' }}>Dear [Student Name],</p>
+                    <p style={{ fontSize: '14px', fontWeight: 'bold', margin: '0 0 10px 0' }}>Greetings of the Day !</p>
+                    <p style={{ fontSize: '14px', lineHeight: '1.4', margin: '0 0 15px 0' }}>Transport section of PSGiTech is happy to <span style={{ backgroundColor: '#f59e0b', color: '#000', padding: '2px 5px', borderRadius: '3px', fontWeight: 'bold', fontSize: '12px' }}>ALLOCATE</span> you a seat in college bus based on your chosen boarding point.</p>
+                    
+                    <div style={{ backgroundColor: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: '6px', padding: '12px', margin: '15px 0' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <tbody>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold', width: '40%' }}>Bus Route:</td><td>[Allocated Route Number - Name]</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Boarding Point:</td><td>[Student Boarding Point]</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Duration:</td><td>From {emailConfig.fromMonth || 'June'} To {emailConfig.toMonth || 'April'}</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Total Bus Fee:</td><td>₹18,500</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold', color: '#059669' }}>Already Paid (Advance):</td><td style={{ color: '#059669', fontWeight: 'bold' }}>₹5,000</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold', color: '#b91c1c' }}>Payable Bus Fee:</td><td style={{ color: '#b91c1c', fontWeight: 'bold' }}>₹13,500</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Date of Payment:</td><td>On or Before {emailConfig.deadline || '05.08.2025'}</td></tr>
+                          <tr style={{ height: '35px', verticalAlign: 'top' }}><td style={{ fontWeight: 'bold', paddingTop: '4px' }}>Mode of Payment:</td><td style={{ paddingTop: '4px', lineHeight: '1.3' }}>{emailConfig.modeOfPayment}</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Venue:</td><td>{emailConfig.venue}</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div style={{ fontSize: '13px', lineHeight: '1.4' }}>
+                      <p style={{ fontWeight: 'bold', margin: '0 0 6px 0' }}>Procedure to be followed:</p>
+                      <ol style={{ margin: 0, paddingLeft: '18px' }}>
+                        <li style={{ marginBottom: '4px' }}>Pay the bus fees as per the mentioned date and get the <strong>RECEIPT</strong>.</li>
+                        <li style={{ marginBottom: '4px' }}>Enter the <strong>Fees receipt number, Date of Payment, Annual Fees and Transport app id</strong> in the 3TL Transport App.</li>
+                        <li style={{ marginBottom: '4px' }}>After entering the data you will receive a mail to the registered id.</li>
+                        <li style={{ marginBottom: '4px' }}>Show the fees receipt or allocation mail in Transport Office and get your <strong>BUS PASS ( Only student , No Parents )</strong> before {emailConfig.deadline || '05.08.2025'}.</li>
+                      </ol>
+                    </div>
+
+                    <div style={{ backgroundColor: '#fffbeb', borderLeft: '4px solid #f59e0b', padding: '10px', margin: '15px 0', borderRadius: '4px', color: '#b45309', fontSize: '12.5px' }}>
+                      <p style={{ margin: '0 0 4px 0', fontWeight: 'bold' }}>Important Notes:</p>
+                      <ol style={{ margin: 0, paddingLeft: '18px' }}>
+                        <li style={{ marginBottom: '3px' }}>Your Seat will be <strong>CONFIRMED</strong> only after receiving the bus pass on or before {emailConfig.deadline || '05.08.2025'}.</li>
+                        <li style={{ marginBottom: '3px' }}>If Not Paid, your allotted seat stays <strong>CANCELLED</strong> and it will be allocated to the other registered commuter.</li>
+                        <li style={{ marginBottom: '3px' }}>From 6<sup>th</sup> August 2025 <strong>NEW BUS PASS</strong> is mandatory for boarding all the college bus.</li>
+                      </ol>
+                    </div>
+                    
+                    <p style={{ fontSize: '13px', margin: '15px 0 0 0' }}>Thank you</p>
+                    <p style={{ fontSize: '13px', fontWeight: 'bold', margin: 0 }}>With Regards,</p>
+                    <p style={{ fontSize: '13px', fontWeight: 'bold', margin: 0 }}>Team Transport</p>
+                  </div>
+                ) : (
+                  <div>
+                    <h2 style={{ color: '#1d4ed8', textAlign: 'center', marginBottom: '5px', fontSize: '20px', fontWeight: 'bold' }}>Transport Section PSG iTech</h2>
+                    <hr style={{ border: '0', borderTop: '1px solid #d1d5db', marginBottom: '15px' }} />
+                    <p style={{ fontSize: '14px', margin: '0 0 10px 0' }}>Dear [Faculty/Staff Name],</p>
+                    <p style={{ fontSize: '14px', fontWeight: 'bold', margin: '0 0 10px 0' }}>Greetings of the Day !</p>
+                    <p style={{ fontSize: '14px', lineHeight: '1.4', margin: '0 0 15px 0' }}>Transport section of PSGiTech is happy to <span style={{ backgroundColor: '#f59e0b', color: '#000', padding: '2px 5px', borderRadius: '3px', fontWeight: 'bold', fontSize: '12px' }}>ALLOCATE</span> you a seat in college bus based on your chosen boarding point.</p>
+                    
+                    <div style={{ backgroundColor: '#f9fafb', border: '1px solid #f3f4f6', borderRadius: '6px', padding: '12px', margin: '15px 0' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <tbody>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold', width: '40%' }}>Bus Route:</td><td>[Allocated Route Number - Name]</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Boarding Point:</td><td>[Staff Boarding Point]</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Duration:</td><td>From {emailConfig.fromMonth || 'June'} To {emailConfig.toMonth || 'April'}</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Annual Bus Fee:</td><td>₹9,250 (Concession Applied)</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Date of Payment:</td><td>On or Before {emailConfig.deadline || '05.08.2025'}</td></tr>
+                          <tr style={{ height: '35px', verticalAlign: 'top' }}><td style={{ fontWeight: 'bold', paddingTop: '4px' }}>Mode of Payment:</td><td style={{ paddingTop: '4px', lineHeight: '1.3' }}>{emailConfig.modeOfPayment}</td></tr>
+                          <tr style={{ height: '24px' }}><td style={{ fontWeight: 'bold' }}>Venue:</td><td>{emailConfig.venue}</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div style={{ fontSize: '13px', lineHeight: '1.4' }}>
+                      <p style={{ fontWeight: 'bold', margin: '0 0 6px 0' }}>Procedure to be followed:</p>
+                      <ol style={{ margin: 0, paddingLeft: '18px' }}>
+                        <li style={{ marginBottom: '4px' }}>Pay the bus fees as per the mentioned date and get the <strong>RECEIPT</strong>.</li>
+                        <li style={{ marginBottom: '4px' }}>Enter the <strong>Fees receipt number, Date of Payment, Annual Fees and Transport app id</strong> in the 3TL Transport App.</li>
+                        <li style={{ marginBottom: '4px' }}>After entering the data you will receive a mail to the registered id.</li>
+                        <li style={{ marginBottom: '4px' }}>Show the fees receipt or allocation mail in Transport Office and get your <strong>BUS PASS</strong> before {emailConfig.deadline || '05.08.2025'}.</li>
+                      </ol>
+                    </div>
+
+                    <div style={{ backgroundColor: '#fffbeb', borderLeft: '4px solid #f59e0b', padding: '10px', margin: '15px 0', borderRadius: '4px', color: '#b45309', fontSize: '12.5px' }}>
+                      <p style={{ margin: '0 0 4px 0', fontWeight: 'bold' }}>Important Notes:</p>
+                      <ol style={{ margin: 0, paddingLeft: '18px' }}>
+                        <li style={{ marginBottom: '3px' }}>Your Seat will be <strong>CONFIRMED</strong> only after receiving the bus pass on or before {emailConfig.deadline || '05.08.2025'}.</li>
+                        <li style={{ marginBottom: '3px' }}>If Not Paid, your allotted seat stays <strong>CANCELLED</strong> and it will be allocated to the other registered commuter.</li>
+                        <li style={{ marginBottom: '3px' }}>From 6<sup>th</sup> August 2025 <strong>NEW BUS PASS</strong> is mandatory for boarding all the college bus.</li>
+                      </ol>
+                    </div>
+                    
+                    <p style={{ fontSize: '13px', margin: '15px 0 0 0' }}>Thank you</p>
+                    <p style={{ fontSize: '13px', fontWeight: 'bold', margin: 0 }}>With Regards,</p>
+                    <p style={{ fontSize: '13px', fontWeight: 'bold', margin: 0 }}>Team Transport</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {false && (
@@ -904,8 +1374,8 @@ export default function AdminDashboard() {
                       <td>{reg.academicYear || '—'}</td>
                       <td><span style={{
                         padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700,
-                        background: reg.registrationStatus === 'allocated' ? 'rgba(16,185,129,0.15)' : reg.registrationStatus === 'rejected' || reg.registrationStatus.includes('rejected') ? 'rgba(244,63,94,0.15)' : 'rgba(245,158,11,0.15)',
-                        color: reg.registrationStatus === 'allocated' ? 'var(--accent-emerald)' : reg.registrationStatus === 'rejected' || reg.registrationStatus.includes('rejected') ? 'var(--accent-rose)' : 'var(--accent-amber)'
+                        background: reg.registrationStatus === 'allocated' ? 'rgba(16,185,129,0.15)' : (reg.registrationStatus === 'rejected' || reg.registrationStatus === 'deallocated' || reg.registrationStatus === 'cancelled' || reg.registrationStatus.includes('rejected')) ? 'rgba(244,63,94,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: reg.registrationStatus === 'allocated' ? 'var(--accent-emerald)' : (reg.registrationStatus === 'rejected' || reg.registrationStatus === 'deallocated' || reg.registrationStatus === 'cancelled' || reg.registrationStatus.includes('rejected')) ? 'var(--accent-rose)' : 'var(--accent-amber)'
                       }}>{reg.registrationStatus}</span></td>
                       <td style={{ fontSize: '0.8rem' }}>
                         <div style={{ marginBottom: '4px' }}>
@@ -916,17 +1386,19 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                       <td>
-                        {reg.registrationStatus === 'allocated' && !reg.isBlocked && (
-                          <button className="btn btn-danger btn-sm" onClick={() => rejectAllocation(reg._id)}>Reject</button>
+                        {reg.registrationStatus === 'allocated' && (
+                          <button className="btn" style={{ background: '#dc2626', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => deallocateUser(reg._id)}>Deallocate</button>
                         )}
-                        <button className="btn btn-sm" style={{ marginLeft: '5px', background: reg.isBlocked ? 'var(--accent-emerald)' : 'var(--text-muted)', color: 'white', border: 'none' }} onClick={() => toggleBlock(reg._id, reg.isBlocked)}>
+                        <button className="btn" style={{ marginLeft: '5px', background: reg.isBlocked ? '#10b981' : '#4b5563', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }} onClick={() => toggleBlock(reg._id, reg.isBlocked)}>
                           {reg.isBlocked ? 'Unblock' : 'Block'}
                         </button>
                         {selectedCommuterId === reg._id && (
                           <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                            <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'registration')}>Reg Mail</button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'allocation')}>Alloc Mail</button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => resendMail(reg._id, 'deallocation')}>Dealloc Mail</button>
+                            <button className="btn" style={{ background: '#4b5563', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'registration')}>Reg Mail</button>
+                            <button className="btn" style={{ background: '#2563eb', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'allocation')}>Alloc Mail</button>
+                            <button className="btn" style={{ background: '#ea580c', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'deallocation')}>Dealloc Mail</button>
+                            <button className="btn" style={{ background: '#4f46e5', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'unallocated')}>Unalloc Mail</button>
+                            <button className="btn" style={{ background: '#be123c', color: '#ffffff', border: 'none', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', cursor: 'pointer' }} onClick={() => resendMail(reg._id, 'unpaid')}>Unpaid Mail</button>
                           </div>
                         )}
                       </td>
@@ -1058,6 +1530,121 @@ export default function AdminDashboard() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.75rem' }}>
               <button className="btn btn-secondary" onClick={() => setSuggestionsModal(null)}>Close</button>
               <button className="btn btn-primary" onClick={downloadSuggestionsCSV}>Download CSV</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Commuter Details */}
+      {editingCommuter && (
+        <div className="modal-overlay" onClick={() => setEditingCommuter(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h2>Edit Details for {editingCommuter.name}</h2>
+              <button className="modal-close" onClick={() => setEditingCommuter(null)}>✕</button>
+            </div>
+            
+            <div className="form-group">
+              <label>Full Name</label>
+              <input className="form-control" value={editingCommuter.name || ''} onChange={e => setEditingCommuter({ ...editingCommuter, name: e.target.value })} />
+            </div>
+
+            <div className="form-group">
+              <label>Email Address</label>
+              <input className="form-control" value={editingCommuter.mailId || ''} onChange={e => setEditingCommuter({ ...editingCommuter, mailId: e.target.value })} />
+            </div>
+
+            <div className="form-group">
+              <label>User Type</label>
+              <select className="form-control" value={editingCommuter.userType || 'student'} onChange={e => setEditingCommuter({ ...editingCommuter, userType: e.target.value })}>
+                <option value="student">Student</option>
+                <option value="faculty">Faculty</option>
+                <option value="staff">Staff</option>
+              </select>
+            </div>
+
+            {editingCommuter.userType === 'student' ? (
+              <>
+                <div className="form-group">
+                  <label>Roll / Register Number</label>
+                  <input className="form-control" value={editingCommuter.registerNumber || ''} onChange={e => setEditingCommuter({ ...editingCommuter, registerNumber: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Academic Year</label>
+                  <select className="form-control" value={editingCommuter.academicYear || 1} onChange={e => setEditingCommuter({ ...editingCommuter, academicYear: parseInt(e.target.value) })}>
+                    <option value={1}>1st Year</option>
+                    <option value={2}>2nd Year</option>
+                    <option value={3}>3rd Year</option>
+                    <option value={4}>4th Year</option>
+                    <option value={5}>5th Year</option>
+                  </select>
+                </div>
+              </>
+            ) : (
+              <div className="form-group">
+                <label>Employee ID</label>
+                <input className="form-control" value={editingCommuter.employeeId || ''} onChange={e => setEditingCommuter({ ...editingCommuter, employeeId: e.target.value })} />
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Boarding Stop</label>
+              <input className="form-control" value={editingCommuter.boardingPoint || ''} onChange={e => setEditingCommuter({ ...editingCommuter, boardingPoint: e.target.value })} placeholder="Enter requested stop name" />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
+              <button className="btn btn-secondary" onClick={() => setEditingCommuter(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveCommuterDetails} disabled={!editingCommuter.name || !editingCommuter.mailId}>
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Manual Allocation Selector */}
+      {manualAllocTarget && (
+        <div className="modal-overlay" onClick={() => setManualAllocTarget(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h2>Select Route & Stop for {manualAllocTarget.registration.name}</h2>
+              <button className="modal-close" onClick={() => setManualAllocTarget(null)}>✕</button>
+            </div>
+            
+            <div className="form-group">
+              <label>Select Route</label>
+              <select className="form-control" value={manualAllocTarget.routeId} onChange={e => {
+                const route = routes.find(r => r._id === e.target.value);
+                setManualAllocTarget({
+                  ...manualAllocTarget,
+                  routeId: e.target.value,
+                  stopName: route && route.stops.length > 0 ? route.stops[0].name : ''
+                });
+              }}>
+                <option value="">Select Route...</option>
+                {sortedRoutes.map(r => <option key={r._id} value={r._id}>{r.routeNumber} — {r.routeName}</option>)}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Select Boarding Stop</label>
+              <select className="form-control" value={manualAllocTarget.stopName} onChange={e => setManualAllocTarget({ ...manualAllocTarget, stopName: e.target.value })}>
+                <option value="">Select Stop...</option>
+                {manualAllocTarget.routeId && routes.find(r => r._id === manualAllocTarget.routeId)?.stops.map(s => (
+                  <option key={s.name} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
+              <button className="btn btn-secondary" onClick={() => setManualAllocTarget(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => allocateIndividualCommuter(
+                manualAllocTarget.registration._id,
+                manualAllocTarget.routeId,
+                manualAllocTarget.stopName
+              )} disabled={!manualAllocTarget.routeId || !manualAllocTarget.stopName}>
+                Confirm Allocation
+              </button>
             </div>
           </div>
         </div>

@@ -12,7 +12,7 @@ const allowedOrigins = new Set(
     .map(origin => origin.trim())
     .filter(Boolean)
 );
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
 [
   'http://localhost:5173',
   'http://localhost:4173',

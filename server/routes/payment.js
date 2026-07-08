@@ -1,9 +1,12 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const pdfParse = require('pdf-parse');
 const router = express.Router();
 const Payment = require('../models/Payment');
 const Registration = require('../models/Registration');
+const FinalFeeReceipt = require('../models/FinalFeeReceipt');
+const FinalPayment = require('../models/FinalPayment');
 
 // Configure multer for PDF uploads
 const storage = multer.diskStorage({
@@ -28,6 +31,49 @@ const upload = multer({
   },
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB
 });
+
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') return cb(null, true);
+    cb(new Error('Only PDF files are allowed'), false);
+  },
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+const normalizeNumber = (value) => {
+  if (value === null || value === undefined) return null;
+  const cleaned = String(value).replace(/[, ]+/g, '').trim();
+  if (!cleaned) return null;
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+};
+
+const getExpectedFinalAmount = (registration) => {
+  const boardingPointFees = Number(registration?.boardingPointFees);
+  return Number.isFinite(boardingPointFees) ? Math.max(0, boardingPointFees - 5000) : null;
+};
+
+const parsePdfPaymentRows = (text) => {
+  const rows = [];
+  const lines = String(text || '')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const match = line.match(/(\d{4,})\s+([A-Za-z0-9-]+)\s+([0-9][0-9,]*(?:\.[0-9]+)?)/);
+    if (!match) continue;
+
+    rows.push({
+      rollNumber: match[1].trim(),
+      receiptNumber: match[2].trim(),
+      miscellaneousAmount: normalizeNumber(match[3])
+    });
+  }
+
+  return rows;
+};
 
 // Upload receipt
 router.post('/upload-receipt', upload.single('receipt'), async (req, res) => {
@@ -151,16 +197,232 @@ router.post('/cancel-request', async (req, res) => {
 // Upload final receipt
 router.post('/upload-final-receipt', upload.single('receipt'), async (req, res) => {
   try {
-    const { rollNumber, registrationId } = req.body;
+    const { rollNumber, receiptNumber, registrationId, finalPaidAmount } = req.body;
     if (!req.file) return res.status(400).json({ message: 'PDF receipt file is required' });
+
+    const registration = await Registration.findById(registrationId).select('_id registerNumber employeeId userType');
+    if (!registration) return res.status(404).json({ message: 'Registration not found' });
+
+    const normalizedRollNumber = (rollNumber || '').trim();
+    const normalizedReceiptNumber = (receiptNumber || '').trim();
+    if (!normalizedRollNumber || !normalizedReceiptNumber) {
+      return res.status(400).json({ message: 'Register number and receipt number are required' });
+    }
+
+    const normalizedFinalPaidAmount = finalPaidAmount === undefined || finalPaidAmount === null || finalPaidAmount === ''
+      ? null
+      : Number(finalPaidAmount);
+    if (normalizedFinalPaidAmount !== null && !Number.isFinite(normalizedFinalPaidAmount)) {
+      return res.status(400).json({ message: 'Final paid amount must be a valid number' });
+    }
+
+    const expectedFinalAmount = getExpectedFinalAmount(registration);
+
+    const existingReceipt = await FinalFeeReceipt.findOne({ registration: registration._id });
+    if (existingReceipt) {
+      existingReceipt.rollNumber = normalizedRollNumber;
+      existingReceipt.receiptNumber = normalizedReceiptNumber;
+      existingReceipt.receiptFile = req.file.path;
+      existingReceipt.finalPaidAmount = normalizedFinalPaidAmount;
+      existingReceipt.expectedFinalAmount = expectedFinalAmount;
+      existingReceipt.status = 'confirmed';
+      existingReceipt.confirmedAt = new Date();
+      existingReceipt.uploadedAt = new Date();
+      await existingReceipt.save();
+    } else {
+      await FinalFeeReceipt.create({
+        registration: registration._id,
+        rollNumber: normalizedRollNumber,
+        receiptNumber: normalizedReceiptNumber,
+        receiptFile: req.file.path,
+        finalPaidAmount: normalizedFinalPaidAmount,
+        expectedFinalAmount,
+        status: 'confirmed',
+        confirmedAt: new Date(),
+        uploadedAt: new Date()
+      });
+    }
 
     await Registration.findByIdAndUpdate(registrationId, {
       finalReceiptFile: req.file.path,
-      fullFeePaid: false, // pending admin confirm
+      fullFeePaid: true,
       finalConfirmationMethod: 'upload'
     });
     
     res.json({ message: 'Final receipt uploaded successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/confirm-final-manual', async (req, res) => {
+  try {
+    const { rollNumber, receiptNumber, paymentDate } = req.body;
+    const normalizedRollNumber = (rollNumber || '').trim();
+    const normalizedReceiptNumber = (receiptNumber || '').trim();
+    const normalizedPaymentDate = paymentDate ? new Date(paymentDate) : null;
+
+    if (!normalizedRollNumber || !normalizedReceiptNumber || !normalizedPaymentDate || Number.isNaN(normalizedPaymentDate.getTime())) {
+      return res.status(400).json({ message: 'Register number, receipt number, and valid payment date are required' });
+    }
+
+    const registration = await Registration.findOne({
+      $or: [{ registerNumber: normalizedRollNumber }, { employeeId: normalizedRollNumber }]
+    });
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    const existing = await FinalPayment.findOne({ registration: registration._id });
+    if (existing) {
+      existing.registerNumber = normalizedRollNumber;
+      existing.receiptNumber = normalizedReceiptNumber;
+      existing.paymentDate = normalizedPaymentDate;
+      existing.verifiedBy = 'office';
+      existing.verifiedAt = new Date();
+      await existing.save();
+    } else {
+      await FinalPayment.create({
+        registration: registration._id,
+        registerNumber: normalizedRollNumber,
+        receiptNumber: normalizedReceiptNumber,
+        paymentDate: normalizedPaymentDate,
+        verifiedBy: 'office',
+        verifiedAt: new Date()
+      });
+    }
+
+    res.json({
+      message: 'Final payment verified successfully',
+      finalPayment: {
+        registerNumber: normalizedRollNumber,
+        receiptNumber: normalizedReceiptNumber,
+        paymentDate: normalizedPaymentDate
+      }
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(400).json({ message: 'Register number or receipt number already exists' });
+    }
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/import-final-payments', pdfUpload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'PDF file is required' });
+    }
+
+    const pdfData = await pdfParse(req.file.buffer);
+    const extractedRows = parsePdfPaymentRows(pdfData.text);
+
+    if (!extractedRows.length) {
+      return res.status(400).json({
+        message: 'No valid payment rows found in the PDF',
+        totalRowsProcessed: 0,
+        successfulImports: 0,
+        failedImports: 0,
+        failedRecords: []
+      });
+    }
+
+    const failedRecords = [];
+    let successfulImports = 0;
+
+    for (const row of extractedRows) {
+      const rollNumber = (row.rollNumber || '').trim();
+      const receiptNumber = (row.receiptNumber || '').trim();
+      const amount = normalizeNumber(row.miscellaneousAmount);
+
+      if (!rollNumber || !receiptNumber || amount === null) {
+        failedRecords.push({
+          ...row,
+          reason: 'Unable to extract Roll no, Receipt no, or MISCELLANEOUS AMOUNT'
+        });
+        continue;
+      }
+
+      const registration = await Registration.findOne({ registerNumber: rollNumber }).lean();
+      if (!registration) {
+        failedRecords.push({ ...row, reason: 'Register Number not found' });
+        continue;
+      }
+
+      const expectedAmount = normalizeNumber((registration.boardingPointFees || 0) - 5000);
+      if (expectedAmount === null || amount !== expectedAmount) {
+        failedRecords.push({
+          ...row,
+          reason: `Amount mismatch. Expected ${expectedAmount}, received ${amount}`
+        });
+        continue;
+      }
+
+      const existing = await FinalPayment.findOne({
+        registerNumber: rollNumber,
+        receiptNumber
+      });
+      if (existing) {
+        failedRecords.push({
+          ...row,
+          reason: 'Duplicate record already exists for this register number and receipt number'
+        });
+        continue;
+      }
+
+      await FinalPayment.create({
+        registration: registration._id,
+        registerNumber: rollNumber,
+        receiptNumber,
+        miscellaneousAmount: amount,
+        verifiedBy: 'office',
+        verifiedAt: new Date(),
+        uploadedAt: new Date(),
+        source: 'pdf-import'
+      });
+
+      successfulImports += 1;
+    }
+
+    res.json({
+      message: 'PDF processed successfully',
+      totalRowsProcessed: extractedRows.length,
+      successfulImports,
+      failedImports: failedRecords.length,
+      failedRecords
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/final-status', async (req, res) => {
+  try {
+    const { registrationId } = req.query;
+    if (!registrationId) {
+      return res.status(400).json({ message: 'Registration ID required' });
+    }
+
+    const registration = await Registration.findById(registrationId).select('_id registerNumber employeeId userType fullFeePaid finalReceiptFile finalConfirmationMethod');
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    const finalReceipt = await FinalFeeReceipt.findOne({ registration: registration._id }).lean();
+    const expectedFinalAmount = getExpectedFinalAmount(registration);
+
+    res.json({
+      verified: !!finalReceipt,
+      uploaded: !!finalReceipt,
+      confirmed: !!finalReceipt,
+      registerNumber: registration.registerNumber || registration.employeeId || '',
+      receiptNumber: finalReceipt?.receiptNumber || '',
+      finalPaidAmount: finalReceipt?.finalPaidAmount ?? null,
+      expectedFinalAmount: finalReceipt?.expectedFinalAmount ?? expectedFinalAmount,
+      receiptFile: finalReceipt?.receiptFile || '',
+      receiptId: finalReceipt?._id || null,
+      source: finalReceipt ? 'finalfeereceipts' : 'registration'
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -43,7 +43,7 @@ const registrationSchema = new mongoose.Schema({
   // Status fields
   registrationStatus: {
     type: String,
-    enum: ['pending', 'allocated', 'rejected', 'confirmed', 'waitlisted', 'cancelled', 'rejected_refund'],
+    enum: ['pending', 'allocated', 'rejected', 'confirmed', 'waitlisted', 'cancelled', 'rejected_refund', 'deallocated'],
     default: 'pending'
   },
   registrationCompleted: { type: Boolean, default: false },

@@ -8,6 +8,7 @@ import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import PaymentUpload from './pages/PaymentUpload'
 import OfficePayment from './pages/OfficePayment'
+import OfficeFinalPayment from './pages/OfficeFinalPayment'
 import RoutesViewer from './pages/RoutesViewer'
 import Suggestions from './pages/Suggestions'
 
@@ -24,6 +25,9 @@ function App() {
             <Route path="/dashboard" element={<UserDashboard />} />
             <Route path="/payment" element={<PaymentUpload />} />
             <Route path="/office" element={<OfficePayment />} />
+            <Route path="/officefinalpayment" element={<OfficeFinalPayment />} />
+            <Route path="officefinalpayment" element={<OfficeFinalPayment />} />
+            <Route path="/office-final-payment" element={<OfficeFinalPayment />} />
             <Route path="/routes-viewer" element={<RoutesViewer />} />
             <Route path="/suggestions" element={<Suggestions />} />
             <Route path="/admin" element={<AdminLogin />} />

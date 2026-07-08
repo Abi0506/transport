@@ -4,7 +4,7 @@ export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const currentUser = sessionStorage.getItem('currentUser')
-  const isOffice = location.pathname === '/office'
+  const isOffice = location.pathname === '/office' || location.pathname === '/officefinalpayment'
   const hideAuthButtons = location.pathname === '/login' || location.pathname.startsWith('/admin') || location.pathname.startsWith('/register') || isOffice
 
   const handleLogout = () => {
@@ -21,6 +21,12 @@ export default function Navbar() {
         </div>
       </Link>
       <div className="navbar-links">
+        {isOffice && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <Link to="/office" className="btn btn-secondary btn-sm">Advance Office</Link>
+            <Link to="/officefinalpayment" className="btn btn-secondary btn-sm">Final Office</Link>
+          </div>
+        )}
         {!hideAuthButtons && (
           currentUser ? (
             <button onClick={handleLogout} className="btn btn-secondary btn-sm">Logout</button>

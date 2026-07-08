@@ -16,12 +16,17 @@ export default function UserDashboard() {
   const [sendingCancelOtp, setSendingCancelOtp] = useState(false)
 
   const [finalFile, setFinalFile] = useState(null)
+  const [finalReceiptNumber, setFinalReceiptNumber] = useState('')
+  const [finalPaidAmount, setFinalPaidAmount] = useState('')
+  const [finalAmountConfirmed, setFinalAmountConfirmed] = useState(false)
   const [uploadingFinal, setUploadingFinal] = useState(false)
+  const [finalStatus, setFinalStatus] = useState({ verified: false, uploaded: false, confirmed: false, receiptNumber: '', finalPaidAmount: null, expectedFinalAmount: null, receiptFile: '' })
 
   const navigate = useNavigate()
 
   const handleFinalUpload = async () => {
     if (!finalFile) { setToast({ type: 'error', msg: 'Please select a PDF file' }); setTimeout(() => setToast(null), 3000); return; }
+    if (!finalAmountConfirmed) { setToast({ type: 'error', msg: 'Please confirm the final paid amount first' }); setTimeout(() => setToast(null), 3000); return; }
 
     const rollNumber = user.registerNumber || user.employeeId
     const fileBaseName = finalFile.name.replace(/\.pdf$/i, '')
@@ -35,12 +40,17 @@ export default function UserDashboard() {
     const formData = new FormData()
     formData.append('receipt', finalFile)
     formData.append('rollNumber', rollNumber)
+    formData.append('receiptNumber', finalReceiptNumber.trim())
+    formData.append('finalPaidAmount', finalPaidAmount.trim())
     formData.append('registrationId', user.registrationId || user._id)
     try {
       const res = await axios.post('/api/payment/upload-final-receipt', formData)
       setToast({ type: 'success', msg: res.data.message })
       setFinalFile(null)
-      setUser(prev => prev ? { ...prev, finalReceiptFile: finalFile.name, fullFeePaid: false, finalConfirmationMethod: 'upload' } : prev)
+      setFinalReceiptNumber('')
+      setFinalPaidAmount('')
+      setFinalAmountConfirmed(false)
+      setUser(prev => prev ? { ...prev, finalReceiptFile: finalFile.name, fullFeePaid: true, finalConfirmationMethod: 'upload' } : prev)
     } catch (err) { setToast({ type: 'error', msg: err.response?.data?.message || 'Upload failed' }) }
     finally { setUploadingFinal(false); setTimeout(() => setToast(null), 4000) }
   }
@@ -111,6 +121,23 @@ export default function UserDashboard() {
     fetchUser()
   }, [navigate])
 
+  useEffect(() => {
+    const fetchFinalStatus = async () => {
+      if (!user?._id) return
+      try {
+        const res = await axios.get('/api/payment/final-status', {
+          params: { registrationId: user._id }
+        })
+        setFinalStatus(res.data || { verified: false, uploaded: false, confirmed: false, receiptNumber: '', finalPaidAmount: null, expectedFinalAmount: null, receiptFile: '' })
+      } catch {
+        setFinalStatus({ verified: false, uploaded: false, confirmed: false, receiptNumber: '', finalPaidAmount: null, expectedFinalAmount: null, receiptFile: '' })
+      }
+    }
+    fetchFinalStatus()
+    const interval = setInterval(fetchFinalStatus, 10000)
+    return () => clearInterval(interval)
+  }, [user?._id])
+
   const logout = () => {
     sessionStorage.removeItem('currentUser')
     navigate('/')
@@ -124,6 +151,11 @@ export default function UserDashboard() {
   const totalAmount = isGovernmentSponsored ? 0 : (user.finalFees || 0)
   const advanceAmount = isGovernmentSponsored ? 0 : (isStudent ? 5000 : 0)
   const payableAmount = isGovernmentSponsored ? 0 : (isStudent ? Math.max(0, totalAmount - advanceAmount) : totalAmount)
+  const finalReceiptExists = Boolean(finalStatus.confirmed)
+  const savedFinalPaidAmount = finalStatus.finalPaidAmount ?? null
+  const savedFinalReceiptNumber = finalStatus.receiptNumber || ''
+  const expectedFinalAmount = finalStatus.expectedFinalAmount ?? payableAmount
+  const canEnterFinalDetails = !finalReceiptExists
 
   const statusColor = {
     pending: 'var(--accent-amber)', allocated: 'var(--accent-emerald)',
@@ -238,25 +270,105 @@ export default function UserDashboard() {
           {/* Final Fee Payment Status */}
           <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--bg-glass)', borderRadius: '12px' }}>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 600 }}>Final Fee Payment</div>
-            <div style={{ fontSize: '1.1rem' }}>
-              {user.fullFeePaid ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Confirmed</span> :
-               user.finalReceiptFile ? <span style={{ color: 'var(--accent-amber)', fontWeight: 'bold' }}>⏳ Receipt Uploaded - Pending</span> :
-               <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Not Paid</span>}
+          <div style={{ fontSize: '1.1rem' }}>
+              {finalReceiptExists ? <span style={{ color: 'var(--accent-emerald)', fontWeight: 'bold' }}>✅ Verified</span> :
+               <span style={{ color: 'var(--accent-rose)', fontWeight: 'bold' }}>❌ Final fee payment not verified</span>}
             </div>
-            {user.finalConfirmationMethod && (
+            {savedFinalReceiptNumber && (
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                Method: {user.finalConfirmationMethod}
+                Receipt #: {savedFinalReceiptNumber}
+              </div>
+            )}
+            {savedFinalPaidAmount !== null && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                Amount paid: ₹{Number(savedFinalPaidAmount).toLocaleString()}
+              </div>
+            )}
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+              Expected amount: ₹{Number(expectedFinalAmount || 0).toLocaleString()}
+            </div>
+            {finalStatus.receiptFile && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem', wordBreak: 'break-all' }}>
+                Receipt file: {finalStatus.receiptFile}
               </div>
             )}
           </div>
 
           {/* Upload Final Fee Receipt */}
-          {!user.fullFeePaid && !user.finalReceiptFile && (
+          {canEnterFinalDetails && (
             <div style={{ marginTop: '1rem' }}>
               <div className="section-title" style={{ fontSize: '0.9rem' }}>📤 Upload Final Fee Receipt</div>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
                 Upload your final fee payment receipt (PDF). Filename must match your ID: <strong>{user.registerNumber || user.employeeId}.pdf</strong>
               </p>
+              <div className="form-group">
+                <label>Final Receipt Number *</label>
+                <input
+                  className="form-control"
+                  value={finalReceiptNumber}
+                  onChange={e => {
+                    setFinalReceiptNumber(e.target.value.replace(/\D/g, '').slice(0, 4))
+                  }}
+                  disabled={!canEnterFinalDetails}
+                  placeholder="Enter final receipt number"
+                  inputMode="numeric"
+                  maxLength={4}
+                />
+              </div>
+              <div className="form-group">
+                <label>Amount paid *</label>
+                <input
+                  className="form-control"
+                  value={finalPaidAmount}
+                  onChange={e => {
+                    const value = e.target.value.replace(/[^\d.]/g, '')
+                    setFinalPaidAmount(value)
+                    setFinalAmountConfirmed(false)
+                  }}
+                  disabled={!canEnterFinalDetails}
+                  onBlur={() => {
+                    if (!finalPaidAmount.trim()) return
+                    const enteredAmount = Number(finalPaidAmount)
+                    if (!Number.isFinite(enteredAmount)) return
+                    const ok = window.confirm(`You entered ₹${enteredAmount.toLocaleString()}. Is this amount correct?`)
+                    setFinalAmountConfirmed(ok)
+                    if (!ok) {
+                      setToast({ type: 'error', msg: 'Please re-enter the correct amount' })
+                      setTimeout(() => setToast(null), 3000)
+                    }
+                  }}
+                  placeholder={`Enter amount paid`}
+                  inputMode="decimal"
+                />
+                <small style={{ color: 'var(--text-muted)' }}>
+                  Expected amount: ₹{payableAmount.toLocaleString()}
+                </small>
+              </div>
+              <button className="btn btn-secondary" style={{ width: '100%', marginBottom: '1rem' }} onClick={() => {
+                if (!canEnterFinalDetails) return
+                if (!finalPaidAmount.trim()) {
+                  setToast({ type: 'error', msg: 'Enter the amount paid first' })
+                  setTimeout(() => setToast(null), 3000)
+                  return
+                }
+                const enteredAmount = Number(finalPaidAmount)
+                if (!Number.isFinite(enteredAmount)) {
+                  setToast({ type: 'error', msg: 'Please enter a valid amount' })
+                  setTimeout(() => setToast(null), 3000)
+                  return
+                }
+                const ok = window.confirm(`You entered ₹${enteredAmount.toLocaleString()}. Is this amount correct?`)
+                setFinalAmountConfirmed(ok)
+                if (!ok) {
+                  setToast({ type: 'error', msg: 'Please re-enter the correct amount' })
+                  setTimeout(() => setToast(null), 3000)
+                } else {
+                  setToast({ type: 'success', msg: 'Amount confirmed' })
+                  setTimeout(() => setToast(null), 2500)
+                }
+              }}>
+                Confirm Amount
+              </button>
               <div className="upload-zone" onClick={() => document.getElementById('finalPdfInput').click()} style={{ padding: '1.5rem 1rem' }}>
                 <div className="icon" style={{ fontSize: '2rem' }}>📄</div>
                 <p style={{ fontSize: '0.85rem' }}>{finalFile ? `Selected: ${finalFile.name}` : 'Click to select final PDF receipt'}</p>
@@ -265,12 +377,25 @@ export default function UserDashboard() {
                 </p>
               </div>
               <input id="finalPdfInput" type="file" accept=".pdf" style={{ display: 'none' }}
+                disabled={!canEnterFinalDetails}
                 onChange={e => setFinalFile(e.target.files[0])} />
 
               <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}
-                disabled={uploadingFinal || !finalFile} onClick={handleFinalUpload}>
+                disabled={uploadingFinal || !canEnterFinalDetails || !finalFile || !finalAmountConfirmed} onClick={handleFinalUpload}>
                 {uploadingFinal ? 'Uploading...' : '⬆ Upload Final Receipt'}
               </button>
+            </div>
+          )}
+
+          {!canEnterFinalDetails && (
+            <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: '12px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--accent-emerald)', marginBottom: '0.5rem' }}>Saved Final Fee Receipt Details</div>
+              <div style={{ display: 'grid', gap: '0.4rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                <div>Receipt Number: <strong>{savedFinalReceiptNumber || '-'}</strong></div>
+                <div>Amount Paid: <strong>₹{Number(savedFinalPaidAmount ?? 0).toLocaleString()}</strong></div>
+                <div>Expected Amount: <strong>₹{Number(expectedFinalAmount || 0).toLocaleString()}</strong></div>
+                <div>Status: <strong>Verified</strong></div>
+              </div>
             </div>
           )}
         </div>
@@ -291,7 +416,7 @@ export default function UserDashboard() {
             <p style={{ fontSize: '0.85rem' }}>Your transport registration has already been cancelled.</p>
             {user.cancellationReason && <p style={{ fontSize: '0.85rem', marginTop: '0.5rem', fontStyle: 'italic' }}>Reason: {user.cancellationReason}</p>}
           </div>
-        ) : user.fullFeePaid ? (
+        ) : finalStatus.confirmed ? (
           <div style={{
             padding: '1.25rem',
             background: 'rgba(239, 68, 68, 0.1)',

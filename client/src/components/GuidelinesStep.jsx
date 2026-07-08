@@ -25,7 +25,9 @@ export default function GuidelinesStep({ accepted, setAccepted }) {
           <li><strong>85%</strong> of total seats reserved for students.</li>
           <li><strong>9%</strong> reserved for teaching faculty and <strong>6%</strong> for non-teaching staff.</li>
           <li>Phase I registration: (2nd to 5th) year students, faculty and staff of PSG iTech and PSG IAP.</li>
+          <li>Phase II registration: first year students and lateral entry students.</li>
           <li>Phase I seat allocation will be completed tentatively before 2nd week of July 2026.</li>
+          <li>Phase II seat allocation will be completed by the 1st week of August 2026.</li>
         </ul>
 
         <h3 style={{ marginTop: '1.5rem', marginBottom: '0.75rem', fontSize: '1.1rem' }}>Allocation Criteria:</h3>
@@ -41,7 +43,7 @@ export default function GuidelinesStep({ accepted, setAccepted }) {
           <li><strong>Faculty (Teaching) & Staff (Non-Teaching):</strong> No advance payment required.</li>
           <li>Annual bus fees to be paid in the accounts section at E1 block ground floor 102 on or before <strong>10 Jul 2026</strong> (Friday).</li>
           <li>If annual bus fee is not paid within the time period, the allotted seat will be deallocated.</li>
-          <li>Phase II: Exclusively for FIRST year students. Allocation by 1st week of August 2026.</li>
+          <li>Phase II: For FIRST year and lateral entry students. Allocation by 1st week of August 2026.</li>
         </ul>
 
         <h3 style={{ marginTop: '1.5rem', marginBottom: '0.75rem', fontSize: '1.1rem' }}>Contact</h3>

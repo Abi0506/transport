@@ -30,7 +30,7 @@ router.get('/stats', async (req, res) => {
     ]);
 
     const allocatedCount = await Registration.countDocuments({ registrationStatus: 'allocated' });
-    const pendingCount = await Registration.countDocuments({ registrationStatus: 'pending' });
+    const pendingCount = await Registration.countDocuments({ registrationStatus: 'pending', cancellationRequested: { $ne: true } });
     const paidCount = await Registration.countDocuments({ advancePaid: true });
 
     res.json({
@@ -79,7 +79,15 @@ router.get('/routes', async (req, res) => {
       const confirmedRegSet = new Set(confirmedPayments.map(p => String(p.registration)));
 
       // Students are counted only if registrationCompleted and payment confirmed
-      const studentsConfirmed = registrations.filter(r => r.userType === 'student' && r.registrationCompleted && confirmedRegSet.has(String(r._id))).length;
+      const studentsConfirmedRegs = registrations.filter(r => r.userType === 'student' && r.registrationCompleted && confirmedRegSet.has(String(r._id)));
+      const studentsConfirmed = studentsConfirmedRegs.length;
+      
+      const studentsByYear = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      studentsConfirmedRegs.forEach(r => {
+        if (r.academicYear >= 1 && r.academicYear <= 5) {
+          studentsByYear[r.academicYear]++;
+        }
+      });
 
       const facultyCount = facultyAll;
       const staffCount = staffAll;
@@ -98,7 +106,7 @@ router.get('/routes', async (req, res) => {
       const studentPercentOfCommuters = totalCommuters > 0 ? Math.round((studentTotal / totalCommuters) * 100) : 0;
 
       const allocatedCount = registrations.filter(r => r.registrationStatus === 'allocated').length;
-      const needAllocationCount = registrations.filter(r => r.advancePaid && ['pending', 'waitlisted'].includes(r.registrationStatus)).length;
+      const needAllocationCount = registrations.filter(r => r.advancePaid && ['pending', 'waitlisted'].includes(r.registrationStatus) && !r.cancellationRequested).length;
 
       // Stop-level counts
       const stopCounts = route.stops.map(stop => {
@@ -128,7 +136,7 @@ router.get('/routes', async (req, res) => {
         // totalRegistered & occupancyPercent now reflect commuters considered for seating
         totalRegistered: totalCommuters,
         commuterSplit: {
-          students: { count: studentTotal, percentOfCapacity: studentPercent, percentOfCommuters: studentPercentOfCommuters },
+          students: { count: studentTotal, percentOfCapacity: studentPercent, percentOfCommuters: studentPercentOfCommuters, byYear: studentsByYear },
           faculty: { count: facultyCount, percentOfCapacity: facultyPercent, percentOfCommuters: facultyPercentOfCommuters },
           staff:   { count: staffCount,   percentOfCapacity: staffPercent,   percentOfCommuters: staffPercentOfCommuters }
         },
@@ -174,6 +182,7 @@ router.get('/route/:routeId/view', async (req, res) => {
     } else if (view === 'need-allocation') {
       query.advancePaid = true;
       query.registrationStatus = { $in: ['pending', 'waitlisted'] };
+      query.cancellationRequested = { $ne: true };
     }
 
     const registrations = await Registration.find(query)
@@ -198,6 +207,10 @@ router.post('/reject/:registrationId', async (req, res) => {
     registration.allocatedRoute = null;
     registration.allocatedStop = null;
     await registration.save();
+
+    if (registration.mailId) {
+      sendMail(registration.mailId, 'Deallocation of Transport Seat', buildDeallocationMail(registration, 'Seat deallocated/rejected by admin'));
+    }
 
     res.json({ message: `Allocation rejected for ${registration.name}`, registration });
   } catch (error) {
@@ -417,16 +430,227 @@ const buildRegistrationMail = (registration) => `
   </div>
 `;
 
-const buildAllocationMail = (registration, route) => `
-  <div style="font-family: Arial, sans-serif; padding: 20px;">
-    <h2>Seat Allocated</h2>
-    <p>Dear ${registration.name},</p>
-    <p>Congratulations! A seat has been successfully allocated to you on Route ${route.routeNumber} (${route.routeName}).</p>
-    <p>Boarding Point: ${registration.boardingPoint}</p>
-    <p>Final Fee: ₹${Math.round(registration.finalFees || 0).toLocaleString()}</p>
-    <p>Team Transport</p>
+const buildUnallocatedMail = (registration) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; color: #374151; line-height: 1.6;">
+    <h2 style="color: #1d4ed8; margin-bottom: 5px; font-size: 22px; font-weight: bold;">Transport Section PSG iTech</h2>
+    <hr style="border: 0; border-top: 1px solid #d1d5db; margin-bottom: 20px;" />
+    
+    <p>Dear ${registration.name}</p>
+    <p><strong>Greetings of the Day !</strong></p>
+    <p>We regret to inform you that the Transport section of PSGiTech could not provide you a seat in college bus due to the specified guidelines of institution .</p>
+    
+    <p><strong>Requested Boarding Point:</strong> ${registration.boardingPoint || 'N/A'}</p>
+    <p><strong>Status:</strong> <span style="color: #dc2626; font-weight: bold;">Not Allocated</span></p>
+    
+    ${registration.userType === 'student' ? `
+      <p style="margin-top: 15px; padding: 10px; background-color: #fef2f2; border-left: 4px solid #dc2626; color: #991b1b; font-weight: bold;">
+        Advance payment of ₹5,000 will be refunded fully on or before September 10, 2026.
+      </p>
+    ` : ''}
+
+    <p style="margin-top: 20px; font-weight: bold;">For Further Clarification:</p>
+    <p style="margin: 4px 0;"><strong>Contact:</strong> Dr.S.Maruthamuthu, Prof & Head Physics - Transport Incharge</p>
+    <p style="margin: 4px 0;"><strong>Location:</strong> E7 302</p>
+    
+    <p style="margin-top: 20px;">Thank you</p>
+    <p style="margin: 0; font-weight: bold;">With Regards,</p>
+    <p style="margin: 0; font-weight: bold;">Team Transport</p>
   </div>
 `;
+
+const buildPaidMail = (registration) => {
+  const receiptNum = registration.advanceReceiptNumber || 'N/A';
+  const paymentDate = registration.updatedAt ? new Date(registration.updatedAt).toLocaleDateString() : 'N/A';
+  
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff;">
+      <h2 style="color: #1d4ed8; text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: bold;">Transport Section PSG iTech</h2>
+      <hr style="border: 0; border-top: 1px solid #d1d5db; margin-bottom: 20px;" />
+      <p style="font-size: 15px; color: #374151;">Dear ${registration.name},</p>
+      <p style="font-size: 15px; color: #374151; font-weight: bold;">Greetings of the Day !</p>
+      <p style="font-size: 15px; color: #374151; line-height: 1.5;">We are pleased to inform you that your transport fee payment has been successfully confirmed.</p>
+      
+      <div style="background-color: #f9fafb; border: 1px solid #f3f4f6; border-radius: 6px; padding: 16px; margin: 20px 0;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 15px; color: #374151;">
+          <tbody>
+            <tr style="height: 30px;"><td style="font-weight: bold; width: 40%;">Payment Status:</td><td style="color: #059669; font-weight: bold;">Confirmed</td></tr>
+            <tr style="height: 30px;"><td style="font-weight: bold;">Receipt Number:</td><td>${receiptNum}</td></tr>
+            <tr style="height: 30px;"><td style="font-weight: bold;">Date of Verification:</td><td>${paymentDate}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      
+      <p style="font-size: 14px; color: #374151; line-height: 1.5;">You can now present this confirmation email or your physical payment receipt to the Transport Office to collect your **BUS PASS**.</p>
+      
+      <p style="font-size: 14px; color: #374151; margin-top: 20px;">Thank you</p>
+      <p style="font-size: 14px; color: #374151; font-weight: bold; margin: 0;">With Regards,</p>
+      <p style="font-size: 14px; color: #374151; font-weight: bold; margin: 0;">Team Transport</p>
+    </div>
+  `;
+};
+
+const buildAllocationMail = (registration, route, options = {}) => {
+  const fromMonth = options.fromMonth || 'August 2026';
+  const toMonth = options.toMonth || 'July 2027';
+  const deadline = options.deadline || '31.07.2026 Friday';
+  const venue = options.venue || 'iTech Office, E1 block Ground floor , Room No 102';
+  const modeOfPayment = options.modeOfPayment || 'Cash / DD (Favoring: The Principal, PSG Institute of Technology and Applied Research, Payable at Coimbatore)';
+
+  const routeName = `Route ${route.routeNumber} - ${route.routeName}`;
+  const boardingPoint = registration.allocatedStop || registration.boardingPoint;
+  const isStudent = registration.userType === 'student';
+  const isSponsored = registration.governmentSponsored === true;
+  const totalFees = Math.round(registration.finalFees || registration.boardingPointFees );
+
+  if (isStudent) {
+    if (isSponsored) {
+      // 1. Reservation (Government Sponsored Category)
+      return `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; color: #374151; line-height: 1.6;">
+          <h2 style="color: #1d4ed8; text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: bold;">Transport Section PSG iTech</h2>
+          <hr style="border: 0; border-top: 1px solid #d1d5db; margin-bottom: 20px;" />
+          
+          <p>Dear ${registration.name}</p>
+          <p><strong>Greetings of the Day !</strong></p>
+          <p>Transport section of PSGiTech is happy to <span style="background-color: #f59e0b; color: #000; padding: 2px 6px; border-radius: 3px; font-weight: bold;">ALLOCATE</span> you a seat in college bus based on your chosen boarding point.</p>
+          
+          <div style="background-color: #f9fafb; border: 1px solid #f3f4f6; border-radius: 6px; padding: 16px; margin: 20px 0;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
+              <tbody>
+                <tr style="height: 30px;"><td style="font-weight: bold; width: 40%;">Bus Route:</td><td>${routeName}</td></tr>
+                <tr style="height: 30px;"><td style="font-weight: bold;">Boarding Point:</td><td>${boardingPoint}</td></tr>
+                <tr style="height: 30px;"><td style="font-weight: bold;">Annual Bus Fee:</td><td>₹ 0 ( 7.5  Govt sponsored Category )</td></tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <p style="font-weight: bold; margin-bottom: 8px;">Procedure to be followed:</p>
+          <p style="margin-left: 10px;">a. Show the allocation mail in Transport Office and get your BUS PASS ( Only student, No Parents ) - Dates will be informed through Whatsapp group.</p>
+          
+          <div style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; margin: 20px 0; border-radius: 4px; color: #b45309;">
+            <p style="margin: 0 0 6px 0; font-weight: bold;">Important Notes:</p>
+            <ol style="margin: 0; padding-left: 20px; font-size: 13.5px;">
+              <li style="margin-bottom: 4px;">Your Seat will be <strong>CONFIRMED</strong> only after receiving the bus pass on or before 01.09.2026.</li>
+              <li style="margin-bottom: 4px;">If Not, your allotted seat stays <strong>CANCELLED</strong> and it will be allocated to the other registered commuter.</li>
+              <li style="margin-bottom: 4px;">From 1st September 2026 <strong>NEW BUS PASS</strong> is mandatory for boarding all the college bus.</li>
+            </ol>
+          </div>
+          
+          <div style="background-color: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px; margin: 20px 0; border-radius: 4px; color: #0369a1; font-size: 13.5px;">
+            <p style="margin: 0 0 6px 0; font-weight: bold;">WhatsApp group link</p>
+            <p style="margin: 8px 0 10px 0;">
+              <a href="https://chat.whatsapp.com/GceII176FFT3ZW1KdFzgVS" target="_blank" style="display: inline-block; background-color: #25d366; color: #ffffff; padding: 8px 16px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 14px;">Join WhatsApp Group</a>
+            </p>
+            <p style="margin: 4px 0;">✅ Only student with their own mobile number should join the  iTech Bus 26-27  Group.</p>
+            <p style="margin: 4px 0; color: #b91c1c; font-weight: bold;">❌ Parents Don't join in this group.</p>
+          </div>
+          
+          <p style="margin-top: 20px;">Thank you</p>
+          <p style="margin: 0; font-weight: bold;">With Regards,</p>
+          <p style="margin: 0; font-weight: bold;">Team Transport</p>
+        </div>
+      `;
+    } else {
+      // 2. Regular Student
+      const payableFees = Math.max(0, totalFees - 5000);
+      return `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; color: #374151; line-height: 1.6;">
+          <h2 style="color: #1d4ed8; text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: bold;">Transport Section PSG iTech</h2>
+          <hr style="border: 0; border-top: 1px solid #d1d5db; margin-bottom: 20px;" />
+          
+          <p>Dear ${registration.name}</p>
+          <p><strong>Greetings of the Day !</strong></p>
+          <p>Transport section of PSGiTech is happy to <strong>ALLOCATE</strong> you a seat in college bus based on your chosen boarding point.</p>
+          
+          <div style="background-color: #f9fafb; border: 1px solid #f3f4f6; border-radius: 6px; padding: 16px; margin: 20px 0;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
+              <tbody>
+                <tr style="height: 30px;"><td style="font-weight: bold; width: 45%;">Bus Route:</td><td>${routeName}</td></tr>
+                <tr style="height: 30px;"><td style="font-weight: bold;">Boarding Point:</td><td>${boardingPoint}</td></tr>
+                <tr style="height: 30px;"><td style="font-weight: bold;">Duration:</td><td>From ${fromMonth} To ${toMonth}</td></tr>
+                <tr style="height: 30px;"><td style="font-weight: bold;">Annual Bus Fee:</td><td>₹${totalFees.toLocaleString()}</td></tr>
+                <tr style="height: 30px;"><td style="font-weight: bold; color: #0284c7;">Balance Payable Fee (Annual Bus Fee - ₹5,000 advance):</td><td style="color: #0284c7; font-weight: bold;">₹${payableFees.toLocaleString()}</td></tr>
+                <tr style="height: 30px;"><td style="font-weight: bold;">Date of Payment:</td><td>On or Before ${deadline}</td></tr>
+                <tr style="height: 45px; vertical-align: top;"><td style="font-weight: bold; padding-top: 5px;">Mode of Payment:</td><td style="padding-top: 5px; line-height: 1.4;">${modeOfPayment}</td></tr>
+                <tr style="height: 35px; vertical-align: top;"><td style="font-weight: bold; padding-top: 5px;">Venue:</td><td style="padding-top: 5px;">${venue}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <p style="font-weight: bold; margin-bottom: 8px;">Procedure to be followed:</p>
+          <ol style="margin: 0; padding-left: 20px;">
+            <li style="margin-bottom: 6px;">Pay the bus fees before the mentioned date and get the RECEIPT.</li>
+            <li style="margin-bottom: 6px;">Enter the Fees receipt number, Date of Payment, Fees details in the 3TL Transport Portal.</li>
+            <li style="margin-bottom: 6px;">After entering the data you will receive a mail to the registered ID.</li>
+            <li style="margin-bottom: 6px;">BUS PASS can be obtained by showing the fees receipt or allocation mail at Transport Office (Only student , No Parents). Suitable dates will be informed in Whatsapp group.</li>
+          </ol>
+          
+          <div style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; margin: 20px 0; border-radius: 4px; color: #b45309;">
+            <p style="margin: 0 0 6px 0; font-weight: bold;">Important Notes:</p>
+            <ol style="margin: 0; padding-left: 20px; font-size: 13.5px;">
+              <li style="margin-bottom: 4px;">Your Seat will be <strong>CONFIRMED</strong> only after receiving the bus pass on or before 01.09.2026.</li>
+              <li style="margin-bottom: 4px;">If Not Paid, your allotted seat stays <strong>CANCELLED</strong> and it will be allocated to the other registered commuter.</li>
+              <li style="margin-bottom: 4px;">From 1st September 2026 <strong>NEW BUS PASS</strong> is mandatory for boarding all the college bus.</li>
+            </ol>
+          </div>
+          
+          <div style="background-color: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px; margin: 20px 0; border-radius: 4px; color: #0369a1; font-size: 13.5px;">
+            <p style="margin: 0 0 6px 0; font-weight: bold;">WhatsApp group link</p>
+            <p style="margin: 8px 0 10px 0;">
+              <a href="https://chat.whatsapp.com/GceII176FFT3ZW1KdFzgVS" target="_blank" style="display: inline-block; background-color: #25d366; color: #ffffff; padding: 8px 16px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 14px;">Join WhatsApp Group</a>
+            </p>
+            <p style="margin: 4px 0;">✅ Only student with their own mobile number should join the iTech Bus 26-27 Group.</p>
+            <p style="margin: 4px 0; color: #b91c1c; font-weight: bold;">❌ Parents Don't join in this group.</p>
+          </div>
+          
+          <p style="margin-top: 20px;">Thank you</p>
+          <p style="margin: 0; font-weight: bold;">With Regards,</p>
+          <p style="margin: 0; font-weight: bold;">Team Transport</p>
+        </div>
+      `;
+    }
+  } else {
+    // 3. Faculty / Staff
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; color: #374151; line-height: 1.6;">
+        <h2 style="color: #1d4ed8; text-align: center; margin-bottom: 5px; font-size: 22px; font-weight: bold;">Transport Section PSG iTech</h2>
+        <hr style="border: 0; border-top: 1px solid #d1d5db; margin-bottom: 20px;" />
+        
+        <p>Dear ${registration.name},</p>
+        <p><strong>Greetings of the Day !</strong></p>
+        <p>Transport section of PSGiTech is happy to <strong>ALLOCATE</strong> you a seat in college bus based on your chosen boardingpoint.</p>
+        
+        <div style="background-color: #f9fafb; border: 1px solid #f3f4f6; border-radius: 6px; padding: 16px; margin: 20px 0;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
+            <tbody>
+              <tr style="height: 30px;"><td style="font-weight: bold; width: 40%;">Bus Route:</td><td>${routeName}</td></tr>
+              <tr style="height: 30px;"><td style="font-weight: bold;">Boarding Point:</td><td>${boardingPoint}</td></tr>
+              <tr style="height: 30px;"><td style="font-weight: bold;">Duration:</td><td>From ${fromMonth} To ${toMonth}</td></tr>
+              <tr style="height: 30px;"><td style="font-weight: bold;">Annual Bus Fee:</td><td>₹${totalFees.toLocaleString()}</td></tr>
+              <tr style="height: 30px;"><td style="font-weight: bold;">Mode of Payment:</td><td>Deduction from salary / cash</td></tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <p style="font-size: 14px; font-weight: bold; line-height: 1.5; color: #1e3a8a; background-color: #eff6ff; padding: 12px; border-radius: 6px; border-left: 4px solid #2563eb; margin: 20px 0;">
+          Kindly get your BUS PASS from the Transport Office (Located between indoor sports stadium and hostel)
+        </p>
+
+        <div style="background-color: #e0f2fe; border-left: 4px solid #0284c7; padding: 12px; margin: 20px 0; border-radius: 4px; color: #0369a1; font-size: 13.5px;">
+          <p style="margin: 0 0 6px 0; font-weight: bold;">WhatsApp group link</p>
+          <p style="margin: 8px 0 10px 0;">
+            <a href="https://chat.whatsapp.com/GceII176FFT3ZW1KdFzgVS" target="_blank" style="display: inline-block; background-color: #25d366; color: #ffffff; padding: 8px 16px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 14px;">Join WhatsApp Group</a>
+          </p>
+          <p style="margin: 4px 0;">✅ Only faculty with their own mobile number should join the iTech Bus 26-27 Group.</p>
+        </div>
+        
+        <p style="font-size: 14px; margin-top: 20px;">Thank you</p>
+        <p style="font-size: 14px; font-weight: bold; margin: 0;">With Regards</p>
+        <p style="font-size: 14px; font-weight: bold; margin: 0;">Team Transport</p>
+      </div>
+    `;
+  }
+};
 
 const buildCancellationPolicyBlock = `
   <div style="margin-top: 16px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
@@ -485,6 +709,71 @@ const buildDeallocationMail = (registration, reason, options = {}) => `
   </div>
 `;
 
+const buildCancellationMail = (registration, reason, options = {}) => {
+  const refundAmount = (registration.advancePaid && !registration.fullFeePaid) ? '₹5,000' : 'N/A';
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+      <div style="background: #dc2626; color: #fff; padding: 16px; text-align: center; font-size: 26px; font-weight: 700;">
+        PSG iTech - Transport Section
+      </div>
+      <div style="padding: 24px; color: #222; line-height: 1.6;">
+        <p>Dear ${registration.name},</p>
+        <p style="font-size: 15px; color: #374151;">Greetings of the Day !</p>
+        <p style="font-size: 15px; color: #374151; line-height: 1.5;">We would like to inform you that your request for transport registration cancellation has been successfully <strong>APPROVED</strong>.</p>
+        
+        <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 14px; border-radius: 4px; margin: 16px 0; color: #7f1d1d;">
+          <p style="margin: 0; font-weight: 600;">Subject: Transport Registration Cancelled</p>
+          <p style="margin: 8px 0 0 0;">Status: <strong>Cancelled</strong></p>
+          <p style="margin: 8px 0 0 0;">Reason for Cancellation: ${reason || 'As requested by user'}</p>
+          <p style="margin: 8px 0 0 0;">Boarding Point: ${registration.boardingPoint || 'N/A'}</p>
+        </div>
+
+        ${registration.advancePaid ? `
+          <div style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; margin: 20px 0;">
+            <p style="margin: 0 0 8px 0; font-weight: bold; color: #374151;">Refund Information:</p>
+            <p style="margin: 0; font-size: 14px; color: #4b5563; line-height: 1.4;">
+              Your advance payment of <strong>₹5,000</strong> will be refunded fully on or before <strong>September 10, 2026</strong>.
+            </p>
+          </div>
+        ` : ''}
+
+        <p style="margin-top: 20px;">Thank you</p>
+        <p style="font-weight: 700; margin: 0;">With Regards,</p>
+        <p style="font-weight: 700; margin: 0;">Team Transport</p>
+      </div>
+      <div style="padding: 12px 24px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px; text-align: center;">Email: transport.psgitech@gmail.com</div>
+    </div>
+  `;
+};
+
+const buildUnpaidDeallocationMail = (registration) => `
+  <div style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+    <div style="background: #dc2626; color: #fff; padding: 16px; text-align: center; font-size: 24px; font-weight: 700;">
+      PSG iTech - Transport Section
+    </div>
+    <div style="padding: 24px; color: #222; line-height: 1.6;">
+      <p>Dear ${registration.name},</p>
+      <p>Greetings of the Day !</p>
+      <p>This is to inform you that your allocated transport seat has been <strong>CANCELLED / DEALLOCATED</strong> because the pending fee payment was not completed within the given deadline date.</p>
+      
+      <div style="background: #fffbeb; border-left: 4px solid #d97706; padding: 14px; border-radius: 4px; margin: 16px 0; color: #92400e;">
+        <p style="margin: 0; font-weight: 600;">Status: Deallocated (Payment Overdue)</p>
+        <p style="margin: 8px 0 0 0;">Reason: Annual transport fee payment not completed within the given date.</p>
+        <p style="margin: 8px 0 0 0;">Boarding Point: ${registration.boardingPoint || 'N/A'}</p>
+      </div>
+
+      <p><strong>Refund Details:</strong></p>
+      <p>Since the payment deadline has passed, your advance payment of <strong>₹5,000</strong> will be refunded fully on or before <strong>September 10, 2026</strong>.</p>
+      <p>Please contact the Transport Office for your refund details and process.</p>
+      
+      <p>Thank you</p>
+      <p style="font-weight: 700; margin: 0;">With Regards,</p>
+      <p style="font-weight: 700; margin: 0;">Team Transport</p>
+    </div>
+    <div style="padding: 12px 24px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px; text-align: center;">Email: transport.psgitech@gmail.com</div>
+  </div>
+`;
+
 // ============ ALLOCATION ENGINE ============
 
 // Allocate seats - route-wise or whole
@@ -508,23 +797,23 @@ router.post('/allocate', async (req, res) => {
     for (const route of routes) {
       const stopNames = route.stops.map(s => s.name);
       const capacity = route.capacity;
-      const facultyCap = Math.floor(capacity * 0.09);
-      const staffCap = Math.floor(capacity * 0.06);
-      const studentCap = capacity - facultyCap - staffCap;
 
-      // Get pending registrations for this route that have PAID
+      // Get pending registrations for this route
       const pendingRegs = await Registration.find({
         boardingPointRoute: route._id,
         registrationStatus: 'pending',
         isBlocked: { $ne: true },
-        advancePaid: true
+        cancellationRequested: { $ne: true }
       });
 
-      // Separate by type
+      // Separate by type and filter eligibility:
+      // - Faculty / Staff: no advance check
+      // - Reservation (Government Sponsored): exempt from advance check
+      // - Regular Student: must have paid advance
       const faculty = pendingRegs.filter(r => r.userType === 'faculty');
       const staff = pendingRegs.filter(r => r.userType === 'staff');
-      const seniorStudents = pendingRegs.filter(r => r.userType === 'student' && r.academicYear >= 2);
-      const firstYearStudents = pendingRegs.filter(r => r.userType === 'student' && r.academicYear === 1);
+      const seniorStudents = pendingRegs.filter(r => r.userType === 'student' && r.academicYear >= 2 && (r.advancePaid || r.governmentSponsored));
+      const firstYearStudents = pendingRegs.filter(r => r.userType === 'student' && r.academicYear === 1 && (r.advancePaid || r.governmentSponsored));
 
       // Sort faculty: age DESC (oldest first), then distanceOrder ASC (farthest first = lower number)
       faculty.sort((a, b) => (b.age || 0) - (a.age || 0) || (a.distanceOrder || 99) - (b.distanceOrder || 99));
@@ -544,42 +833,28 @@ router.post('/allocate', async (req, res) => {
 
       let remainingSeats = capacity - alreadyAllocated;
       let allocated = { faculty: 0, staff: 0, seniorStudents: 0, firstYear: 0 };
-      const newlyAllocatedEmails = [];
+      const newlyAllocatedRegs = [];
 
-      // Allocate faculty (up to 9% cap)
-      const existingFaculty = await Registration.countDocuments({
-        boardingPointRoute: route._id,
-        registrationStatus: 'allocated',
-        userType: 'faculty'
-      });
-      let facultySlots = Math.min(facultyCap - existingFaculty, remainingSeats);
+      // Allocate faculty
       for (const f of faculty) {
-        if (facultySlots <= 0 || remainingSeats <= 0) break;
+        if (remainingSeats <= 0) break;
         f.registrationStatus = 'allocated';
         f.allocatedRoute = route._id;
         f.allocatedStop = f.boardingPoint;
         await f.save();
-        newlyAllocatedEmails.push(f.mailId);
-        facultySlots--;
+        newlyAllocatedRegs.push(f);
         remainingSeats--;
         allocated.faculty++;
       }
 
-      // Allocate staff (up to 6% cap)
-      const existingStaff = await Registration.countDocuments({
-        boardingPointRoute: route._id,
-        registrationStatus: 'allocated',
-        userType: 'staff'
-      });
-      let staffSlots = Math.min(staffCap - existingStaff, remainingSeats);
+      // Allocate staff
       for (const s of staff) {
-        if (staffSlots <= 0 || remainingSeats <= 0) break;
+        if (remainingSeats <= 0) break;
         s.registrationStatus = 'allocated';
         s.allocatedRoute = route._id;
         s.allocatedStop = s.boardingPoint;
         await s.save();
-        newlyAllocatedEmails.push(s.mailId);
-        staffSlots--;
+        newlyAllocatedRegs.push(s);
         remainingSeats--;
         allocated.staff++;
       }
@@ -591,7 +866,7 @@ router.post('/allocate', async (req, res) => {
         st.allocatedRoute = route._id;
         st.allocatedStop = st.boardingPoint;
         await st.save();
-        newlyAllocatedEmails.push(st.mailId);
+        newlyAllocatedRegs.push(st);
         remainingSeats--;
         allocated.seniorStudents++;
       }
@@ -603,20 +878,18 @@ router.post('/allocate', async (req, res) => {
         st.allocatedRoute = route._id;
         st.allocatedStop = st.boardingPoint;
         await st.save();
-        newlyAllocatedEmails.push(st.mailId);
+        newlyAllocatedRegs.push(st);
         remainingSeats--;
         allocated.firstYear++;
       }
 
       // Send emails to all newly allocated users
-      for (const email of newlyAllocatedEmails) {
-        if (email) {
-          sendMail(email, 'Bus Seat Allocated', `
-            <div style="font-family: Arial, sans-serif; padding: 20px;">
-              <h2>Seat Allocated</h2>
-              <p>Congratulations! A seat has been successfully allocated to you on Route ${route.routeNumber} (${route.routeName}).</p>
-            </div>
-          `);
+      for (const reg of newlyAllocatedRegs) {
+        if (reg.mailId) {
+          const subject = reg.userType === 'faculty' || reg.userType === 'staff'
+            ? 'Bus Seat Allocated - Faculty / Staff'
+            : (reg.governmentSponsored ? 'Bus Seat Allocated - Sponsored / Scholarship' : 'Bus Seat Allocated');
+          sendMail(reg.mailId, subject, buildAllocationMail(reg, route));
         }
       }
 
@@ -669,24 +942,13 @@ router.post('/approve-cancellation/:id', async (req, res) => {
     await registration.save();
 
     if (registration.mailId) {
-      let emailContent;
       const reason = registration.cancellationReason || 'Cancellation request approved';
-      
-      // Choose email template based on payment status
-      if (registration.advancePaid && !registration.fullFeePaid) {
-        // Advance only - send advance refund email
-        emailContent = buildAdvanceRefundMail(registration, reason);
-      } else if (registration.fullFeePaid) {
-        // Full payment - send deallocation with cancellation policy
-        emailContent = buildDeallocationMail(registration, reason, { includeCancellationPolicy: true });
-      } else {
-        // No payment - send basic deallocation
-        emailContent = buildDeallocationMail(registration, reason, { includeCancellationPolicy: false });
-      }
+      const includeCancellationPolicy = Boolean(registration.advancePaid || registration.fullFeePaid);
+      const emailContent = buildCancellationMail(registration, reason, { includeCancellationPolicy });
       
       await sendMail(
         registration.mailId,
-        'Deallocation of Transport Seat',
+        'Cancellation of Transport Seat',
         emailContent
       );
     }
@@ -717,7 +979,7 @@ router.post('/deallocate/:registrationId', async (req, res) => {
     const registration = await Registration.findById(req.params.registrationId);
     if (!registration) return res.status(404).json({ message: 'Registration not found' });
 
-    registration.registrationStatus = 'rejected';
+    registration.registrationStatus = 'deallocated';
     registration.allocatedRoute = null;
     registration.allocatedStop = null;
     registration.deallocationReason = reason || 'Deallocated by admin';
@@ -725,7 +987,19 @@ router.post('/deallocate/:registrationId', async (req, res) => {
     await registration.save();
 
     if (registration.mailId) {
-      await sendMail(registration.mailId, 'Deallocation of Transport Seat', buildDeallocationMail(registration, registration.deallocationReason));
+      if (registration.advancePaid) {
+        await sendMail(
+          registration.mailId,
+          'Deallocation of Transport Seat - Payment Overdue',
+          buildUnpaidDeallocationMail(registration)
+        );
+      } else {
+        await sendMail(
+          registration.mailId,
+          'Deallocation of Transport Seat',
+          buildDeallocationMail(registration, registration.deallocationReason)
+        );
+      }
     }
 
     res.json({ message: 'User deallocated successfully', registration });
@@ -737,7 +1011,7 @@ router.post('/deallocate/:registrationId', async (req, res) => {
 // Resend mails if required
 router.post('/resend-mail/:registrationId', async (req, res) => {
   try {
-    const { type } = req.body;
+    const { type, fromMonth, toMonth, deadline, venue, modeOfPayment } = req.body;
     const registration = await Registration.findById(req.params.registrationId)
       .populate('boardingPointRoute', 'routeNumber routeName')
       .populate('allocatedRoute', 'routeNumber routeName');
@@ -747,17 +1021,202 @@ router.post('/resend-mail/:registrationId', async (req, res) => {
     if (type === 'registration') {
       await sendMail(registration.mailId, 'Transport Registration Confirmation - AY 2026-27', buildRegistrationMail(registration));
     } else if (type === 'allocation') {
-      const route = registration.allocatedRoute || registration.boardingPointRoute;
+      if (registration.registrationStatus !== 'allocated') {
+        const routeId = registration.allocatedRoute || registration.boardingPointRoute;
+        if (!routeId) return res.status(400).json({ message: 'No route found for allocation mail' });
+        
+        registration.allocatedRoute = routeId;
+        registration.allocatedStop = registration.allocatedStop || registration.boardingPoint;
+        registration.registrationStatus = 'allocated';
+        await registration.save();
+      }
+      
+      const route = await Route.findById(registration.allocatedRoute);
       if (!route) return res.status(400).json({ message: 'No route found for allocation mail' });
-      await sendMail(registration.mailId, 'Bus Seat Allocated', buildAllocationMail(registration, route));
-    } else if (type === 'deallocation') {
+      
+      const subject = registration.userType === 'faculty' || registration.userType === 'staff'
+        ? 'Bus Seat Allocated - Faculty / Staff'
+        : (registration.governmentSponsored ? 'Bus Seat Allocated - Sponsored / Scholarship' : 'Bus Seat Allocated');
+      await sendMail(registration.mailId, subject, buildAllocationMail(registration, route, { fromMonth, toMonth, deadline, venue, modeOfPayment }));
+    } else if (type === 'unpaid') {
+      await sendMail(
+        registration.mailId,
+        'Deallocation of Transport Seat - Payment Overdue',
+        buildUnpaidDeallocationMail(registration)
+      );
+    } else if (type === 'deallocation' || type === 'cancellation') {
       const includeCancellationPolicy = registration.registrationStatus === 'cancelled' && Boolean(registration.advancePaid || registration.fullFeePaid);
-      await sendMail(registration.mailId, 'Deallocation of Transport Seat', buildDeallocationMail(registration, registration.deallocationReason, { includeCancellationPolicy }));
+      if (registration.registrationStatus === 'cancelled' || type === 'cancellation') {
+        const reason = registration.deallocationReason || registration.cancellationReason || 'Cancellation approved';
+        await sendMail(
+          registration.mailId,
+          'Cancellation of Transport Seat',
+          buildCancellationMail(registration, reason, { includeCancellationPolicy })
+        );
+      } else {
+        await sendMail(
+          registration.mailId,
+          'Deallocation of Transport Seat',
+          buildDeallocationMail(registration, registration.deallocationReason, { includeCancellationPolicy })
+        );
+      }
+    } else if (type === 'unallocated') {
+      await sendMail(registration.mailId, 'Transport Registration Status Update', buildUnallocatedMail(registration));
+    } else if (type === 'paid') {
+      await sendMail(registration.mailId, 'Transport Fee Payment Confirmed', buildPaidMail(registration));
     } else {
       return res.status(400).json({ message: 'Invalid mail type' });
     }
 
     res.json({ message: 'Mail sent successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Bulk send allocation emails
+router.post('/send-bulk-emails', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const {
+      userType, // 'all', 'student', 'faculty', 'staff'
+      routeId,  // optional: specific route
+      commuterId, // optional: roll number, employee ID, email, or registration ID
+      fromMonth,
+      toMonth,
+      deadline,
+      venue,
+      modeOfPayment
+    } = req.body;
+
+    let query = {};
+    
+    if (commuterId && commuterId.trim()) {
+      const idVal = commuterId.trim();
+      const lookupConditions = [
+        { registerNumber: idVal },
+        { employeeId: idVal },
+        { mailId: idVal }
+      ];
+      if (mongoose.Types.ObjectId.isValid(idVal)) {
+        lookupConditions.push({ _id: idVal });
+      }
+      query = {
+        $or: lookupConditions
+      };
+    } else {
+      query.registrationStatus = 'allocated';
+      if (userType && userType !== 'all') {
+        if (userType === 'reservation') {
+          query.userType = 'student';
+          query.governmentSponsored = true;
+        } else if (userType === 'student') {
+          query.userType = 'student';
+          query.governmentSponsored = false;
+        } else if (userType === 'faculty_staff') {
+          query.userType = { $in: ['faculty', 'staff'] };
+        } else {
+          query.userType = userType;
+        }
+      }
+      if (routeId) {
+        query.allocatedRoute = routeId;
+      }
+    }
+
+    const registrations = await Registration.find(query);
+
+    if (registrations.length === 0) {
+      return res.status(404).json({ message: commuterId ? 'No commuter found matching that ID.' : 'No allocated commuters found matching the criteria.' });
+    }
+
+    let sentCount = 0;
+    for (const reg of registrations) {
+      if (reg.registrationStatus !== 'allocated') {
+        const rId = reg.allocatedRoute || reg.boardingPointRoute;
+        if (!rId) continue;
+        reg.allocatedRoute = rId;
+        reg.allocatedStop = reg.allocatedStop || reg.boardingPoint;
+        reg.registrationStatus = 'allocated';
+        await reg.save();
+      }
+
+      const route = await Route.findById(reg.allocatedRoute);
+      if (!route) continue;
+
+      if (reg.mailId) {
+        const emailContent = buildAllocationMail(reg, route, {
+          fromMonth,
+          toMonth,
+          deadline,
+          venue,
+          modeOfPayment
+        });
+        const subject = reg.userType === 'faculty' || reg.userType === 'staff'
+          ? 'Bus Seat Allocated - Faculty / Staff'
+          : (reg.governmentSponsored ? 'Bus Seat Allocated - Sponsored / Scholarship' : 'Bus Seat Allocated');
+        sendMail(reg.mailId, subject, emailContent);
+        sentCount++;
+      }
+    }
+
+    res.json({ message: `Successfully sent allocation emails to ${sentCount} user(s).` });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Manual individual allocation
+router.post('/allocate-individual/:registrationId', async (req, res) => {
+  try {
+    const { routeId, stopName } = req.body;
+    const registration = await Registration.findById(req.params.registrationId);
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    const route = await Route.findById(routeId);
+    if (!route) {
+      return res.status(404).json({ message: 'Route not found' });
+    }
+
+    registration.registrationStatus = 'allocated';
+    registration.allocatedRoute = routeId;
+    registration.allocatedStop = stopName || registration.boardingPoint;
+    await registration.save();
+
+    if (registration.mailId) {
+      const subject = registration.userType === 'faculty' || registration.userType === 'staff'
+        ? 'Bus Seat Allocated - Faculty / Staff'
+        : (registration.governmentSponsored ? 'Bus Seat Allocated - Sponsored / Scholarship' : 'Bus Seat Allocated');
+      sendMail(registration.mailId, subject, buildAllocationMail(registration, route));
+    }
+
+    res.json({ message: `Successfully allocated ${registration.name} to Route ${route.routeNumber}`, registration });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Update commuter details (not status or payment)
+router.put('/registration/:registrationId', async (req, res) => {
+  try {
+    const { name, mailId, registerNumber, employeeId, userType, academicYear, boardingPoint } = req.body;
+    const registration = await Registration.findById(req.params.registrationId);
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    if (name !== undefined) registration.name = name;
+    if (mailId !== undefined) registration.mailId = mailId;
+    if (registerNumber !== undefined) registration.registerNumber = registerNumber;
+    if (employeeId !== undefined) registration.employeeId = employeeId;
+    if (userType !== undefined) registration.userType = userType;
+    if (academicYear !== undefined) registration.academicYear = academicYear;
+    if (boardingPoint !== undefined) registration.boardingPoint = boardingPoint;
+
+    await registration.save();
+    res.json({ message: 'Commuter details updated successfully', registration });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -873,13 +1332,25 @@ router.get('/suggestions/export', async (req, res) => {
 
 router.get('/registrations', async (req, res) => {
   try {
-    const { userType, status, route, page = 1, limit = 50, advancePaid, fullFeePaid, view } = req.query;
+    const { userType, status, route, boardingPoint, search, page = 1, limit = 50, advancePaid, fullFeePaid, view } = req.query;
     const query = {};
     if (userType) query.userType = userType;
     if (status) query.registrationStatus = status;
     if (route) query.boardingPointRoute = route;
+    if (boardingPoint) query.boardingPoint = boardingPoint;
     if (advancePaid === 'true' || advancePaid === 'false') query.advancePaid = advancePaid === 'true';
     if (fullFeePaid === 'true' || fullFeePaid === 'false') query.fullFeePaid = fullFeePaid === 'true';
+
+    if (search && search.trim()) {
+      const trimmedSearch = search.trim();
+      const escapedSearch = trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$or = [
+        { name: { $regex: escapedSearch, $options: 'i' } },
+        { registerNumber: { $regex: escapedSearch, $options: 'i' } },
+        { employeeId: { $regex: escapedSearch, $options: 'i' } },
+        { mailId: { $regex: escapedSearch, $options: 'i' } }
+      ];
+    }
 
     if (view === 'registered') {
       query.registrationCompleted = true;
@@ -915,6 +1386,7 @@ router.get('/registrations', async (req, res) => {
     } else if (view === 'need-allocation') {
       query.advancePaid = true;
       query.registrationStatus = { $in: ['pending', 'waitlisted'] };
+      query.cancellationRequested = { $ne: true };
     }
 
     const total = await Registration.countDocuments(query);
